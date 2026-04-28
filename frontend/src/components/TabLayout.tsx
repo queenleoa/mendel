@@ -10,6 +10,7 @@ import AlphaParameters from './tabs/AlphaParameters'
 import BacktestBreed from './tabs/BacktestBreed'
 import Mint from './tabs/Mint'
 import Trade from './tabs/Trade'
+import logo from '../assets/mendel-logo.png'
 import '../styles/TabLayout.css'
 
 type TabType = 'connect' | 'universe' | 'alpha' | 'backtest' | 'mint' | 'trade'
@@ -76,11 +77,7 @@ export default function TabLayout() {
     <div className="tab-layout">
       <header className="app-header">
         <div className="brand">
-          <span className="brand-mark">M</span>
-          <div className="brand-text">
-            <span className="brand-name">Mendel</span>
-            <span className="brand-tagline">Research Console</span>
-          </div>
+          <img src={logo} alt="Mendel" className="brand-logo" />
         </div>
         <nav className="tab-navigation" aria-label="Workflow steps">
           {tabs.map((tab) => {

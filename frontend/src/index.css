@@ -1,18 +1,18 @@
 :root {
-  --bg: #f7f4ec;
-  --bg-soft: #fbf9f3;
+  --bg: #f8f4f1;
+  --bg-soft: #fbf8f5;
   --surface: #ffffff;
-  --surface-muted: #f1ede2;
-  --ink: #1c1a17;
-  --ink-soft: #4a463f;
-  --ink-muted: #7a746a;
-  --line: #d9d2c2;
-  --line-soft: #ece6d6;
-  --accent: #2c3e5c;
-  --accent-strong: #1f2d44;
-  --accent-soft: #e7ecf3;
+  --surface-muted: #efe9e5;
+  --ink: #16242b;
+  --ink-soft: #3a4750;
+  --ink-muted: #6e7880;
+  --line: #ddd5cf;
+  --line-soft: #ebe5df;
+  --accent: #2596be;
+  --accent-strong: #1a7191;
+  --accent-soft: #dbeef5;
   --success: #2f6f4f;
-  --danger: #8a2a2a;
+  --danger: #8a3030;
   --warn: #8a5b1f;
 
   --serif: 'Cormorant Garamond', 'Garamond', 'Georgia', 'Times New Roman', serif;

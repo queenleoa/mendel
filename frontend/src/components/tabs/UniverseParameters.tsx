@@ -97,7 +97,7 @@ export default function UniverseParameters({ value, onChange, onContinue }: Prop
               {VENUES.map((v) => (
                 <option key={v.value} value={v.value} disabled={v.disabled}>
                   {v.label}
-                  {v.disabled ? ' — coming soon' : ''}
+                  {v.disabled ? ' — v2' : ''}
                 </option>
               ))}
             </select>
@@ -113,7 +113,7 @@ export default function UniverseParameters({ value, onChange, onContinue }: Prop
               {PAIRS.map((p) => (
                 <option key={p.value} value={p.value} disabled={p.disabled}>
                   {p.label}
-                  {p.disabled ? ' — coming soon' : ''}
+                  {p.disabled ? ' — v2' : ''}
                 </option>
               ))}
             </select>
