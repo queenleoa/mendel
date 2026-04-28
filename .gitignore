@@ -1,0 +1,14 @@
+# Environment variables (never commit secrets)
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# 0G agent skills — vendored reference, not part of the project source
+.0g-skills/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

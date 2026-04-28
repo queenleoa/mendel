@@ -69,18 +69,18 @@ export async function runInference(
   onStatus(`Using provider ${shortAddr(providerAddress)} (${model})…`)
 
   onStatus('Checking compute ledger balance…')
+  let ledgerAvailable = 0
   let ledgerExists = false
-  let available = 0
   try {
     const account = await broker.ledger.getLedger()
-    available = parseFloat(formatEther(account[2] as bigint))
+    ledgerAvailable = parseFloat(formatEther(account[2] as bigint))
     ledgerExists = true
   } catch {
     ledgerExists = false
   }
 
   if (!ledgerExists) {
-    onStatus('Creating 0G compute ledger with 3 OG (approve in MetaMask)…')
+    onStatus('Creating 0G compute ledger with 3 OG (one-time, approve in MetaMask)…')
     const ledgerApi = broker.ledger as unknown as {
       addLedger?: (n: number, gasPrice?: number) => Promise<unknown>
     }
@@ -89,34 +89,65 @@ export async function runInference(
     } else {
       await broker.ledger.depositFund(3, TX_GAS_PRICE)
     }
-  } else if (available < 1) {
-    onStatus(`Topping up ledger (current: ${available.toFixed(4)} OG)…`)
-    await broker.ledger.depositFund(1, TX_GAS_PRICE)
+  } else {
+    onStatus(`Ledger already exists (available: ${ledgerAvailable.toFixed(4)} OG) — skipping creation.`)
+    if (ledgerAvailable < 0.5) {
+      onStatus('Topping up ledger with 1 OG (approve in MetaMask)…')
+      await broker.ledger.depositFund(1, TX_GAS_PRICE)
+    }
   }
 
-  onStatus('Funding provider sub-account (1 OG minimum)…')
+  onStatus('Checking provider sub-account…')
+  let subBalance = 0
+  let subExists = false
   try {
+    const sub = (await broker.inference.getAccount(
+      providerAddress,
+    )) as unknown as { balance?: bigint } & bigint[]
+    const rawBalance = sub[2] ?? sub.balance ?? 0n
+    subBalance = parseFloat(formatEther(rawBalance as bigint))
+    subExists = true
+  } catch {
+    subExists = false
+  }
+
+  if (!subExists || subBalance < 0.1) {
+    onStatus(
+      subExists
+        ? `Sub-account low (${subBalance.toFixed(4)} OG) — topping up 1 OG…`
+        : 'Funding provider sub-account with 1 OG (one-time, approve in MetaMask)…',
+    )
     await broker.ledger.transferFund(
       providerAddress,
       'inference',
       parseEther('1'),
       TX_GAS_PRICE,
     )
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    if (!/already|exists|sufficient/i.test(msg)) {
-      console.warn('transferFund warning:', err)
-    }
+  } else {
+    onStatus(`Sub-account already funded (${subBalance.toFixed(4)} OG) — skipping transfer.`)
   }
 
-  onStatus('Acknowledging provider (one-time)…')
+  onStatus('Checking provider acknowledgement…')
+  let isAcked = false
   try {
-    await broker.inference.acknowledgeProviderSigner(providerAddress)
+    isAcked = await broker.inference.acknowledged(providerAddress)
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    if (!/already|acknowledged/i.test(msg)) {
-      console.warn('acknowledge warning:', err)
+    console.warn('acknowledged() check failed:', err)
+  }
+
+  if (!isAcked) {
+    onStatus('Acknowledging provider (one-time, approve in MetaMask)…')
+    try {
+      await broker.inference.acknowledgeProviderSigner(
+        providerAddress,
+        TX_GAS_PRICE,
+      )
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!/already|acknowledged/i.test(msg)) throw err
     }
+  } else {
+    onStatus('Provider already acknowledged — skipping.')
   }
 
   onStatus('Fetching service metadata…')
