@@ -10,6 +10,7 @@ Most current AI systems focus exclusively on the first axis. They're agents that
 
 The ideal future version composes both axes: agents that learn during their lifetimes operating with templates that themselves evolve. 
 
+```
 Artificial Intelligence (AI)
 │
 ├── Machine Learning (ML)
@@ -26,6 +27,7 @@ Artificial Intelligence (AI)
     └── Genetic Algorithms (GA)
         ├── Haploid Genetic Algorithms
         └── Diploid Genetic Algorithms
+```
 
 ## The three layers of any AI trading system
 
