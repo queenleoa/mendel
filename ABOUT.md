@@ -28,6 +28,14 @@ Artificial Intelligence (AI)
         ├── Haploid Genetic Algorithms
         └── Diploid Genetic Algorithms
 ```
+**Key intuition**
+
+Think of two adaptive AI models like two brains - breeding brains is not feasible, but combining DNA is:
+<ul>
+<li>You can’t just average neuron connections and expect a smarter brain </li>
+<li>They can only vote, teach one another, or coordinate </li>
+<li>But you can recombine the original "genetic codes" to create better variants that adapt to new market conditions rapidly </li>
+</ul>
 
 ## The three layers of any AI trading system
 
