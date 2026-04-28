@@ -34,11 +34,10 @@ export default function ConnectWallet({ onContinue }: Props) {
     <div className="connect-wallet-container">
       <article className="connect-wallet-card">
         <header className="card-header">
-          <p className="eyebrow">Mendel · Research Console</p>
-          <h1 className="title">No-code AI Quant Bot Builder for DeFi</h1>
+          <p className="eyebrow">Powered by the 0g stack + Uniswap API</p>
+          <h1 className="title">No-code AI Quant Bot Builder : Strategies breed + evolve for DeFi-native non-stationary optimization</h1>
           <p className="subtitle">
-            Build, evolve, and trade autonomous AI quant strategies using genetic
-            algorithms and multi-copy signal redundancy.
+            Build, cross-breed, test, deploy and trade your own autonomously reasoning AI quant strategy iNFTs in just a few clicks. 
           </p>
         </header>
 

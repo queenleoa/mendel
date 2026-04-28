@@ -59,9 +59,10 @@ export default function UniverseParameters({ value, onChange, onContinue }: Prop
           <p className="eyebrow">Step 2 · Universe</p>
           <h1 className="title">Universe Parameters</h1>
           <p className="subtitle">
-            These parameters define the specialisation of your quant bot. These
+            These parameters define the specialisation of your quant bot. The
             details will also be used to group your strategy iNFT. Strategies
-            with different universe parameters are therefore not equivalent.
+            with different universe parameters are therefore not equivalent, 
+            but strategies with similar universe parameters can be cross-bred.
           </p>
         </header>
 

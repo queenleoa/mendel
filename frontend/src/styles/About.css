@@ -1,0 +1,82 @@
+.about-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.about-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.about-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 2.5rem 3rem;
+  box-shadow: var(--shadow-sm);
+  animation: fadeIn 0.4s ease-out;
+}
+
+.about-status {
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.about-error {
+  color: var(--danger);
+}
+
+/* github-markdown-css resets and themes the .markdown-body block.
+   We just constrain its width and let GitHub's styles do the work. */
+.about-card .markdown-body {
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.97rem;
+  line-height: 1.65;
+}
+
+.about-card .markdown-body a {
+  color: var(--accent);
+}
+
+.about-card .markdown-body a:hover {
+  color: var(--accent-strong);
+}
+
+.about-card .markdown-body code {
+  background: var(--surface-muted);
+  border: none;
+  color: var(--ink);
+}
+
+.about-card .markdown-body pre {
+  background: #0e1116;
+}
+
+.about-card .markdown-body pre code {
+  background: transparent;
+  color: #e6edf3;
+}
+
+.about-card .markdown-body h1,
+.about-card .markdown-body h2,
+.about-card .markdown-body h3 {
+  font-family: var(--serif);
+  color: var(--ink);
+  border-bottom-color: var(--line-soft);
+}
+
+@media (max-width: 640px) {
+  .about-card {
+    padding: 1.75rem 1.25rem;
+  }
+}

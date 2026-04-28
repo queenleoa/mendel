@@ -38,12 +38,12 @@
 
 .title {
   font-family: var(--serif);
-  font-size: 2rem;
+  font-size: 1.6rem;
   font-weight: 600;
   margin: 0 0 0.85rem 0;
   color: var(--ink);
-  letter-spacing: -0.01em;
-  line-height: 1.18;
+  letter-spacing: -0.005em;
+  line-height: 1.45;
 }
 
 .subtitle {
@@ -220,7 +220,8 @@
   }
 
   .title {
-    font-size: 1.6rem;
+    font-size: 1.4rem;
+    line-height: 1.4;
   }
 
   .meta-row {

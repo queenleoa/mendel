@@ -3,7 +3,7 @@ import { defineChain } from 'viem'
 import { metaMask } from 'wagmi/connectors'
 
 export const zeroGGalileo = defineChain({
-  id: 16601,
+  id: 16602,
   name: '0G Galileo Testnet',
   nativeCurrency: { name: '0G', symbol: 'OG', decimals: 18 },
   rpcUrls: {

@@ -10,13 +10,16 @@ import AlphaParameters from './tabs/AlphaParameters'
 import BacktestBreed from './tabs/BacktestBreed'
 import Mint from './tabs/Mint'
 import Trade from './tabs/Trade'
+import About from './About'
 import logo from '../assets/mendel-logo.png'
 import '../styles/TabLayout.css'
 
 type TabType = 'connect' | 'universe' | 'alpha' | 'backtest' | 'mint' | 'trade'
+type View = 'main' | 'about'
 
 export default function TabLayout() {
   const { isConnected } = useAccount()
+  const [view, setView] = useState<View>('main')
   const [activeTab, setActiveTab] = useState<TabType>('connect')
   const [universeParams, setUniverseParams] = useState<UniverseParams>(
     defaultUniverseParams,
@@ -50,7 +53,7 @@ export default function TabLayout() {
     { id: 'trade', label: 'Trade' },
   ]
 
-  const renderContent = () => {
+  const renderTabContent = () => {
     switch (activeTab) {
       case 'connect':
         return <ConnectWallet onContinue={() => setActiveTab('universe')} />
@@ -76,36 +79,67 @@ export default function TabLayout() {
   return (
     <div className="tab-layout">
       <header className="app-header">
-        <div className="brand">
-          <img src={logo} alt="Mendel" className="brand-logo" />
-        </div>
-        <nav className="tab-navigation" aria-label="Workflow steps">
-          {tabs.map((tab) => {
-            const locked = isLocked(tab.id)
-            return (
+        <div className="header-top">
+          <div className="header-left" />
+          <div className="brand">
+            <img src={logo} alt="Mendel" className="brand-logo" />
+          </div>
+          <div className="header-right">
+            {view === 'main' ? (
               <button
-                key={tab.id}
-                className={`tab-button ${activeTab === tab.id ? 'active' : ''} ${locked ? 'locked' : ''}`}
-                onClick={() => !locked && setActiveTab(tab.id)}
-                disabled={locked}
-                title={
-                  locked
-                    ? !isConnected
-                      ? 'Connect a wallet to unlock'
-                      : 'Set universe parameters to unlock'
-                    : undefined
-                }
+                className="header-action"
+                onClick={() => setView('about')}
                 type="button"
               >
-                {locked && <span className="lock-icon" aria-hidden="true">🔒</span>}
-                {tab.label}
+                Learn More
               </button>
-            )
-          })}
-        </nav>
+            ) : (
+              <button
+                className="header-action"
+                onClick={() => setView('main')}
+                type="button"
+              >
+                ← Back
+              </button>
+            )}
+          </div>
+        </div>
+
+        {view === 'main' && (
+          <nav className="tab-navigation" aria-label="Workflow steps">
+            {tabs.map((tab) => {
+              const locked = isLocked(tab.id)
+              return (
+                <button
+                  key={tab.id}
+                  className={`tab-button ${activeTab === tab.id ? 'active' : ''} ${locked ? 'locked' : ''}`}
+                  onClick={() => !locked && setActiveTab(tab.id)}
+                  disabled={locked}
+                  title={
+                    locked
+                      ? !isConnected
+                        ? 'Connect a wallet to unlock'
+                        : 'Set universe parameters to unlock'
+                      : undefined
+                  }
+                  type="button"
+                >
+                  {locked && (
+                    <span className="lock-icon" aria-hidden="true">
+                      🔒
+                    </span>
+                  )}
+                  {tab.label}
+                </button>
+              )
+            })}
+          </nav>
+        )}
       </header>
 
-      <main className="tab-content">{renderContent()}</main>
+      <main className="tab-content">
+        {view === 'about' ? <About /> : renderTabContent()}
+      </main>
     </div>
   )
 }
