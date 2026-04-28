@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useAccount, useBalance, useConnect, useDisconnect } from 'wagmi'
 import { formatUnits } from 'viem'
 import { zeroGGalileo } from '../../config/wagmi'
@@ -7,20 +6,11 @@ import '../../styles/ConnectWallet.css'
 const FAUCET_URL = 'https://0g-faucet-hackathon.vercel.app/'
 const FAUCET_CODE = 'OPEN-AGENT'
 
-function connectorLabel(name: string) {
-  if (/metamask/i.test(name)) return 'MetaMask'
-  if (/coinbase/i.test(name)) return 'Coinbase Wallet'
-  if (/injected/i.test(name)) return 'Browser Wallet'
-  return name
+type Props = {
+  onContinue: () => void
 }
 
-function connectorIcon(name: string) {
-  if (/metamask/i.test(name)) return '🦊'
-  if (/coinbase/i.test(name)) return '🔵'
-  return '👛'
-}
-
-export default function ConnectWallet() {
+export default function ConnectWallet({ onContinue }: Props) {
   const { address, isConnected } = useAccount()
   const { connectors, connect, isPending, error } = useConnect()
   const { disconnect } = useDisconnect()
@@ -29,7 +19,12 @@ export default function ConnectWallet() {
     chainId: zeroGGalileo.id,
     query: { enabled: Boolean(address) },
   })
-  const [pickerOpen, setPickerOpen] = useState(false)
+
+  const metaMaskConnector = connectors.find((c) => /metamask/i.test(c.name))
+
+  const handleConnect = () => {
+    if (metaMaskConnector) connect({ connector: metaMaskConnector })
+  }
 
   const formattedBalance = balance
     ? `${Number(formatUnits(balance.value, balance.decimals)).toFixed(4)} ${balance.symbol}`
@@ -75,8 +70,15 @@ export default function ConnectWallet() {
               </dl>
 
               <div className="action-row">
-                <a
+                <button
                   className="btn btn-primary"
+                  onClick={onContinue}
+                  type="button"
+                >
+                  Continue →
+                </button>
+                <a
+                  className="btn btn-ghost"
                   href={FAUCET_URL}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -103,72 +105,23 @@ export default function ConnectWallet() {
                 <span className="status-label">No wallet connected</span>
               </div>
               <p className="hint">
-                Connect a wallet to access the research, backtesting, and trading
+                Connect MetaMask to access the research, backtesting, and trading
                 modules.
               </p>
               <button
                 className="btn btn-primary"
-                onClick={() => setPickerOpen(true)}
+                onClick={handleConnect}
+                disabled={isPending || !metaMaskConnector}
                 type="button"
               >
-                Connect Wallet
+                <span className="mm-icon" aria-hidden="true">🦊</span>
+                {isPending ? 'Connecting…' : 'Connect MetaMask'}
               </button>
+              {error && <p className="connect-error">{error.message}</p>}
             </div>
           )}
         </section>
       </article>
-
-      {pickerOpen && !isConnected && (
-        <div
-          className="modal-overlay"
-          onClick={() => !isPending && setPickerOpen(false)}
-        >
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header className="modal-header">
-              <h2>Choose a wallet</h2>
-              <button
-                className="modal-close"
-                onClick={() => setPickerOpen(false)}
-                aria-label="Close"
-                type="button"
-              >
-                ×
-              </button>
-            </header>
-            <ul className="connector-list">
-              {connectors.map((connector) => (
-                <li key={connector.uid}>
-                  <button
-                    className="connector-button"
-                    onClick={() => {
-                      connect(
-                        { connector },
-                        { onSuccess: () => setPickerOpen(false) },
-                      )
-                    }}
-                    disabled={isPending}
-                    type="button"
-                  >
-                    <span className="connector-icon" aria-hidden="true">
-                      {connectorIcon(connector.name)}
-                    </span>
-                    <span className="connector-label">
-                      {connectorLabel(connector.name)}
-                    </span>
-                    {isPending && <span className="connector-spinner" />}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {error && <p className="modal-error">{error.message}</p>}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

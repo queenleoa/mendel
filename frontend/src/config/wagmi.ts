@@ -1,6 +1,6 @@
 import { createConfig, http } from 'wagmi'
 import { defineChain } from 'viem'
-import { metaMask, injected, coinbaseWallet } from 'wagmi/connectors'
+import { metaMask } from 'wagmi/connectors'
 
 export const zeroGGalileo = defineChain({
   id: 16601,
@@ -17,11 +17,7 @@ export const zeroGGalileo = defineChain({
 
 export const config = createConfig({
   chains: [zeroGGalileo],
-  connectors: [
-    metaMask({ dappMetadata: { name: 'Mendel' } }),
-    injected({ shimDisconnect: true }),
-    coinbaseWallet({ appName: 'Mendel' }),
-  ],
+  connectors: [metaMask({ dappMetadata: { name: 'Mendel' } })],
   transports: {
     [zeroGGalileo.id]: http(),
   },
