@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useAccount, useWalletClient } from 'wagmi'
 import { runInference, walletClientToSigner } from '../../lib/zgInference'
-import '../../styles/BacktestBreed.css'
+import '../../styles/Backtest.css'
 
 const QUESTION = 'What is 2 + 2? Reply with only the integer answer.'
 
 type Meta = { model: string; providerAddress: string }
 
-export default function BacktestBreed() {
+export default function Backtest() {
   const { isConnected } = useAccount()
   const { data: walletClient } = useWalletClient()
   const [running, setRunning] = useState(false)

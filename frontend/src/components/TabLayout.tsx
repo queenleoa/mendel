@@ -7,14 +7,22 @@ import UniverseParameters, {
   isUniverseComplete,
 } from './tabs/UniverseParameters'
 import AlphaParameters from './tabs/AlphaParameters'
-import BacktestBreed from './tabs/BacktestBreed'
 import Mint from './tabs/Mint'
+import Breed from './tabs/Breed'
+import Backtest from './tabs/Backtest'
 import Trade from './tabs/Trade'
 import About from './About'
 import logo from '../assets/mendel-logo.png'
 import '../styles/TabLayout.css'
 
-type TabType = 'connect' | 'universe' | 'alpha' | 'backtest' | 'mint' | 'trade'
+type TabType =
+  | 'connect'
+  | 'universe'
+  | 'alpha'
+  | 'mint'
+  | 'breed'
+  | 'backtest'
+  | 'trade'
 type View = 'main' | 'about'
 
 export default function TabLayout() {
@@ -48,8 +56,9 @@ export default function TabLayout() {
     { id: 'connect', label: 'Connect Wallet' },
     { id: 'universe', label: 'Universe Parameters' },
     { id: 'alpha', label: 'Alpha Parameters' },
-    { id: 'backtest', label: 'Backtest & Breed' },
-    { id: 'mint', label: 'Mint' },
+    { id: 'mint', label: 'Mint iNFTs' },
+    { id: 'breed', label: 'Breed' },
+    { id: 'backtest', label: 'Backtest' },
     { id: 'trade', label: 'Trade' },
   ]
 
@@ -67,10 +76,12 @@ export default function TabLayout() {
         )
       case 'alpha':
         return <AlphaParameters />
-      case 'backtest':
-        return <BacktestBreed />
       case 'mint':
         return <Mint />
+      case 'breed':
+        return <Breed />
+      case 'backtest':
+        return <Backtest />
       case 'trade':
         return <Trade />
     }
