@@ -274,9 +274,9 @@ export default function AlphaParameters() {
           <p className="eyebrow">Step 3 · Alpha</p>
           <h1 className="title">Create the Founding Strategies</h1>
           <p className="subtitle">
-            Choose the signal layout, then drag genes from the gene library
-            onto the dominant and recessive strategy slots. Each strategy is
-            built from one trigger and one filter.
+            Choose the signal layout, then drag alpha signals from the alpha library
+            onto the dominant and recessive strategy slots. For this demo, each strategy is
+            built from one trigger signal and one filter signal.
           </p>
         </div>
         <div className="variant-picker">
@@ -384,7 +384,7 @@ export default function AlphaParameters() {
         </div>
       ) : (
         <div className="alpha-empty">
-          <p>Choose a signal layout above to load the gene library and the founding-strategy grid.</p>
+          <p>Choose a signal layout in the drop-down menu to load the alpha library and the founding-strategy grid.</p>
         </div>
       )}
 

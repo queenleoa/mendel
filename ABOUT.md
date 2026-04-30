@@ -30,7 +30,7 @@ Artificial Intelligence (AI)
 ```
 **Key intuition**
 
-Think of two adaptive AI models like two brains - breeding brains is not feasible, but combining DNA is:
+Think of two adaptive AI models like two brains - cross-breeding brains is not feasible, but combining DNA is:
 <ul>
 <li>You can’t just average neuron connections and expect a smarter brain </li>
 <li>They can only vote, teach one another, or coordinate </li>
