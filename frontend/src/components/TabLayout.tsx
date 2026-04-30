@@ -11,6 +11,7 @@ import Mint from './tabs/Mint'
 import Breed from './tabs/Breed'
 import Backtest from './tabs/Backtest'
 import Trade from './tabs/Trade'
+import GenomeTest from './tabs/GenomeTest'
 import About from './About'
 import logo from '../assets/mendel-logo.png'
 import '../styles/TabLayout.css'
@@ -23,7 +24,7 @@ type TabType =
   | 'breed'
   | 'backtest'
   | 'trade'
-type View = 'main' | 'about'
+type View = 'main' | 'about' | 'genome-test'
 
 export default function TabLayout() {
   const { isConnected } = useAccount()
@@ -62,30 +63,39 @@ export default function TabLayout() {
     { id: 'trade', label: 'Trade' },
   ]
 
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case 'connect':
-        return <ConnectWallet onContinue={() => setActiveTab('universe')} />
-      case 'universe':
-        return (
-          <UniverseParameters
-            value={universeParams}
-            onChange={setUniverseParams}
-            onContinue={() => setActiveTab('alpha')}
-          />
-        )
-      case 'alpha':
-        return <AlphaParameters />
-      case 'mint':
-        return <Mint />
-      case 'breed':
-        return <Breed />
-      case 'backtest':
-        return <Backtest />
-      case 'trade':
-        return <Trade />
-    }
-  }
+  // All main-tab components stay mounted so each one preserves its own
+  // local state (Alpha grid placements, Mint results, Backtest output, …)
+  // when the user switches tabs. The `hidden` attribute applies CSS
+  // `display: none` while keeping the subtree in the DOM.
+  const renderTabContent = () => (
+    <>
+      <div hidden={activeTab !== 'connect'} className="tab-pane">
+        <ConnectWallet onContinue={() => setActiveTab('universe')} />
+      </div>
+      <div hidden={activeTab !== 'universe'} className="tab-pane">
+        <UniverseParameters
+          value={universeParams}
+          onChange={setUniverseParams}
+          onContinue={() => setActiveTab('alpha')}
+        />
+      </div>
+      <div hidden={activeTab !== 'alpha'} className="tab-pane">
+        <AlphaParameters onContinue={() => setActiveTab('mint')} />
+      </div>
+      <div hidden={activeTab !== 'mint'} className="tab-pane">
+        <Mint universeParams={universeParams} />
+      </div>
+      <div hidden={activeTab !== 'breed'} className="tab-pane">
+        <Breed />
+      </div>
+      <div hidden={activeTab !== 'backtest'} className="tab-pane">
+        <Backtest />
+      </div>
+      <div hidden={activeTab !== 'trade'} className="tab-pane">
+        <Trade />
+      </div>
+    </>
+  )
 
   return (
     <div className="tab-layout">
@@ -97,13 +107,26 @@ export default function TabLayout() {
           </div>
           <div className="header-right">
             {view === 'main' ? (
-              <button
-                className="header-action"
-                onClick={() => setView('about')}
-                type="button"
-              >
-                Learn More
-              </button>
+              <div className="header-actions-stack">
+                <button
+                  className="header-action"
+                  onClick={() => setView('about')}
+                  type="button"
+                >
+                  Learn More
+                </button>
+                <button
+                  className="header-action"
+                  onClick={() => setView('genome-test')}
+                  disabled={!isConnected}
+                  title={
+                    isConnected ? undefined : 'Connect a wallet first'
+                  }
+                  type="button"
+                >
+                  Verify storage encryption
+                </button>
+              </div>
             ) : (
               <button
                 className="header-action"
@@ -149,7 +172,13 @@ export default function TabLayout() {
       </header>
 
       <main className="tab-content">
-        {view === 'about' ? <About /> : renderTabContent()}
+        {view === 'about' ? (
+          <About />
+        ) : view === 'genome-test' ? (
+          <GenomeTest />
+        ) : (
+          renderTabContent()
+        )}
       </main>
     </div>
   )

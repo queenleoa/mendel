@@ -60,6 +60,7 @@ type ParamField = {
   defaultValue: string
   prefix?: string
   suffix?: string
+  highlightOnChange?: boolean
 }
 
 type CellState = { geneId: string; params: Record<string, string> } | null
@@ -74,8 +75,8 @@ const GENE_PARAMS: Record<string, ParamField[]> = {
     { key: 'threshold', label: 'Threshold', prefix: '±', defaultValue: '1', suffix: 'σ' },
   ],
   'volatility-band': [
-    { key: 'low', label: 'Low', defaultValue: '0.7' },
-    { key: 'high', label: 'High', defaultValue: '2.5' },
+    { key: 'low', label: 'Low', defaultValue: '0.7', highlightOnChange: true },
+    { key: 'high', label: 'High', defaultValue: '2.5', highlightOnChange: true },
   ],
 }
 
@@ -134,6 +135,12 @@ function StrategyCell({ cellKey, state, onDrop, onClear, onParamChange }: CellPr
   const expectedType = CELL_TYPES[cellKey]
   const columnClass = cellKey.startsWith('dom-') ? 'col-dominant' : 'col-recessive'
   const params = state ? GENE_PARAMS[state.geneId] ?? [] : []
+  const placedGeneModified = !!(
+    state &&
+    params.some(
+      (p) => p.highlightOnChange && state.params[p.key] !== p.defaultValue,
+    )
+  )
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -167,8 +174,12 @@ function StrategyCell({ cellKey, state, onDrop, onClear, onParamChange }: CellPr
     >
       {gene && state ? (
         <div
-          className="placed-gene"
-          style={{ ['--gene-color' as string]: gene.color }}
+          className={`placed-gene ${placedGeneModified ? 'modified' : ''}`}
+          style={{
+            ['--gene-color' as string]: placedGeneModified
+              ? '#ec4899'
+              : gene.color,
+          }}
         >
           <header className="placed-gene-header">
             <span className="placed-gene-label">{gene.label}</span>
@@ -215,7 +226,11 @@ function StrategyCell({ cellKey, state, onDrop, onClear, onParamChange }: CellPr
   )
 }
 
-export default function AlphaParameters() {
+type AlphaProps = {
+  onContinue?: () => void
+}
+
+export default function AlphaParameters({ onContinue }: AlphaProps) {
   const [variant, setVariant] = useState<Variant>('')
   const [cells, setCells] = useState<Record<CellKey, CellState>>({
     'dom-trigger': null,
@@ -225,6 +240,11 @@ export default function AlphaParameters() {
   })
   const [shakingId, setShakingId] = useState<string | null>(null)
   const [v2Toast, setV2Toast] = useState<string | null>(null)
+  const allCellsFilled =
+    !!cells['dom-trigger'] &&
+    !!cells['rec-trigger'] &&
+    !!cells['dom-filter'] &&
+    !!cells['rec-filter']
 
   const handleTryDragV2 = (label: string, id: string) => {
     setShakingId(id)
@@ -380,6 +400,27 @@ export default function AlphaParameters() {
                 onParamChange={handleParamChange}
               />
             </div>
+
+            <footer className="canvas-footer">
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={!allCellsFilled}
+                onClick={() => allCellsFilled && onContinue?.()}
+                title={
+                  allCellsFilled
+                    ? 'Proceed to mint'
+                    : 'Fill all four cells to continue'
+                }
+              >
+                Continue →
+              </button>
+              {!allCellsFilled && (
+                <p className="canvas-footer-hint">
+                  Drop a trigger and a filter into both columns to unlock minting.
+                </p>
+              )}
+            </footer>
           </section>
         </div>
       ) : (
