@@ -36,9 +36,10 @@ const EMPTY_SLOTS: ChildSlot[] = Array.from({ length: 9 }, (_, i) => ({
 
 type BreedingFlowProps = {
   onContinue?: () => void
+  onChildrenReady?: (children: ChildResult[]) => void
 }
 
-export default function BreedingFlow({ onContinue }: BreedingFlowProps) {
+export default function BreedingFlow({ onContinue, onChildrenReady }: BreedingFlowProps) {
   const { isConnected } = useAccount()
   const { data: walletClient } = useWalletClient()
   const [parentA, setParentA] = useState<number>(1)
@@ -171,6 +172,7 @@ export default function BreedingFlow({ onContinue }: BreedingFlowProps) {
       const signer = await walletClientToSigner(walletClient)
       const r = await breedFlow(parentA, parentB, signer, handleEvent)
       setChildResults(r.children)
+      onChildrenReady?.(r.children)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

@@ -14,6 +14,7 @@ import Breed from './tabs/Breed'
 import Backtest from './tabs/Backtest'
 import Trade from './tabs/Trade'
 import About from './About'
+import type { ChildResult } from '../lib/inft'
 import '../styles/TabLayout.css'
 
 type TabType =
@@ -33,6 +34,9 @@ export default function TabLayout() {
   const [universeParams, setUniverseParams] = useState<UniverseParams>(
     defaultUniverseParams,
   )
+  // Lifted from BreedingFlow so the Backtest tab can score the same 9
+  // children that were just minted, without re-fetching from chain.
+  const [childResults, setChildResults] = useState<ChildResult[] | null>(null)
 
   const universeComplete = useMemo(
     () => isUniverseComplete(universeParams),
@@ -89,10 +93,13 @@ export default function TabLayout() {
         />
       </div>
       <div hidden={activeTab !== 'breed'} className="tab-pane">
-        <Breed onContinue={() => setActiveTab('backtest')} />
+        <Breed
+          onContinue={() => setActiveTab('backtest')}
+          onChildrenReady={setChildResults}
+        />
       </div>
       <div hidden={activeTab !== 'backtest'} className="tab-pane">
-        <Backtest />
+        <Backtest childResults={childResults} />
       </div>
       <div hidden={activeTab !== 'trade'} className="tab-pane">
         <Trade />

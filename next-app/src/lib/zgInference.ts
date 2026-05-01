@@ -90,10 +90,18 @@ export async function runInference(
       await broker.ledger.depositFund(3, TX_GAS_PRICE)
     }
   } else {
-    onStatus(`Ledger already exists (available: ${ledgerAvailable.toFixed(4)} OG) — skipping creation.`)
-    if (ledgerAvailable < 0.5) {
-      onStatus('Topping up ledger with 1 OG (approve in MetaMask)…')
-      await broker.ledger.depositFund(1, TX_GAS_PRICE)
+    // Don't auto-top-up. The SDK's balance field has been unreliable across
+    // versions, and unconditional top-ups make the live trade loop hammer
+    // MetaMask on every cycle. Surface a passive warning instead — the
+    // user can manually top up via the 0G console if balance actually runs
+    // dry (the next inference will fail loudly with an out-of-funds error,
+    // which is the right signal to act on).
+    if (ledgerAvailable > 0) {
+      onStatus(`Ledger ready (≈${ledgerAvailable.toFixed(4)} OG available).`)
+    } else {
+      onStatus(
+        'Ledger exists but balance reads as 0 — proceeding (SDK balance field is unreliable; manual top-up only if inference fails).',
+      )
     }
   }
 
@@ -111,12 +119,12 @@ export async function runInference(
     subExists = false
   }
 
-  if (!subExists || subBalance < 0.1) {
-    onStatus(
-      subExists
-        ? `Sub-account low (${subBalance.toFixed(4)} OG) — topping up 1 OG…`
-        : 'Funding provider sub-account with 1 OG (one-time, approve in MetaMask)…',
-    )
+  // Only fund the sub-account on first creation. After that, never auto-
+  // transfer — the SDK's balance reading is too inconsistent across
+  // versions (often returns 0 even when funded), which made the live
+  // trade loop ask for a top-up MetaMask popup every single cycle.
+  if (!subExists) {
+    onStatus('Funding provider sub-account with 1 OG (one-time, approve in MetaMask)…')
     await broker.ledger.transferFund(
       providerAddress,
       'inference',
@@ -124,7 +132,9 @@ export async function runInference(
       TX_GAS_PRICE,
     )
   } else {
-    onStatus(`Sub-account already funded (${subBalance.toFixed(4)} OG) — skipping transfer.`)
+    onStatus(
+      `Sub-account exists (≈${subBalance.toFixed(4)} OG reported) — skipping transfer.`,
+    )
   }
 
   onStatus('Checking provider acknowledgement…')

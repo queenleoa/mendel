@@ -5,11 +5,28 @@ import 'server-only'
 import { neon } from '@neondatabase/serverless'
 import type { Agent, AgentStatus, Cycle, Genome, LineageParams } from './types'
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL not set')
-}
+// Lazy neon client. Throwing at module load (`if (!process.env.DATABASE_URL)
+// throw …`) makes Next.js serve an opaque HTML 500 because the route's
+// try/catch never gets a chance to run — the import itself crashes. By
+// deferring to first use we let route handlers convert the failure into a
+// readable JSON error.
+let _client: ReturnType<typeof neon> | null = null
 
-export const sql = neon(process.env.DATABASE_URL)
+export function sql(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<unknown[]> {
+  if (!_client) {
+    const url = process.env.DATABASE_URL
+    if (!url) {
+      throw new Error(
+        'DATABASE_URL not set. Add it to next-app/.env.local and restart `npm run dev`.',
+      )
+    }
+    _client = neon(url)
+  }
+  return _client(strings, ...values) as Promise<unknown[]>
+}
 
 // =====================================================================
 //                                Agents

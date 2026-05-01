@@ -396,15 +396,181 @@ function pickDominance(
 }
 
 /**
- * Pure deterministic Mendelian sampling. For each child, sample one allele
- * from each parent at each locus; the child genotype is heterozygous over
- * those two alleles.
+ * Pure deterministic recombination. Folds two generations of meiosis into
+ * a single breed call so a P × P cross of homozygous founders yields a
+ * properly segregating F2 generation in one shot — Mendel's "9:3:3:1"
+ * second filial generation, not a uniform F1 hybrid.
  *
- * Same `seed` + same parents → same children, every time, in every
- * implementation. This is the property that lets us run recombination in
- * plain JS without needing a TEE: anyone with the inputs can verify the
- * outputs by re-running.
+ * Algorithm (per child, per locus, twice — once for each haplotype):
+ *   1. Sample one allele from parent A's pool          ─┐
+ *   2. Sample one allele from parent B's pool          ─┴ → F1 hybrid {a, b}
+ *   3. Sample one of those two alleles                  → F2 gamete
+ *
+ * For F1 = [M,M] × F2-founder = [R,R], step 3 yields M with p=½ and R
+ * with p=½ at each haplotype, so child genotype probabilities at the
+ * trigger locus are MM ¼, MR ½, RR ¼ — phenotype 3:1 momentum:reversion.
+ * Loci segregate independently, giving the canonical 9:3:3:1 over both.
+ *
+ * Same `seed` + same parents → same children, byte-for-byte, in any
+ * implementation — the property that lets us run recombination in plain
+ * JS without a TEE.
+ *
+ * Note: this is intentionally biased for P × P (founder) crosses where
+ * skipping a generation is the whole point. For later F2 × F2 → F3
+ * breedings the same routine still works, but introduces an extra layer
+ * of meiotic shuffling vs textbook single-generation Mendelian sampling.
+ * Acceptable for the demo; revisit if breed-of-breed becomes common.
  */
+
+function f2Gamete<T extends Allele>(
+  prng: ReturnType<typeof makeSeededPrng>,
+  parentAAlleles: readonly T[],
+  parentBAlleles: readonly T[],
+): T {
+  // F1 hybrid intermediate: one allele from each P parent.
+  const f1HaplotypeFromA = prng.sampleOne(parentAAlleles)
+  const f1HaplotypeFromB = prng.sampleOne(parentBAlleles)
+  // Meiosis on the F1 → one of the two haplotypes is passed to the F2 child.
+  return prng.sampleOne([f1HaplotypeFromA, f1HaplotypeFromB])
+}
+
+// =====================================================================
+// Demo guarantee: at least one child per phenotype combo
+// =====================================================================
+//
+// Pure Mendelian sampling produces zero double-recessive children in
+// ~57% of 9-child breeds (probability (15/16)^9). Empirically valid
+// but bad for a hackathon demo where users expect to see all four
+// 9:3:3:1 corners on screen.
+//
+// Strategy: run the natural F2 sampling for all `count` children, then
+// scan for missing phenotype combos. For each missing combo, replace a
+// duplicate child slot (i.e. a phenotype that appeared more than once)
+// with one constructed to express the missing combo. The natural draw
+// is preserved on the ~43% of breeds where it already covers all four
+// phenotypes.
+
+type GuaranteedPhenotype = {
+  trigger: 'momentum' | 'reversion'
+  filter: 'volatility-narrow' | 'volatility-wide'
+}
+
+const ALL_PHENOTYPES: readonly GuaranteedPhenotype[] = [
+  { trigger: 'momentum', filter: 'volatility-narrow' },
+  { trigger: 'momentum', filter: 'volatility-wide' },
+  { trigger: 'reversion', filter: 'volatility-narrow' },
+  { trigger: 'reversion', filter: 'volatility-wide' },
+]
+
+const phenoKey = (g: Genome): string =>
+  `${g.trigger.dominance}|${g.filter.dominance}`
+
+/**
+ * Produce a haplotype pair that expresses `targetType` at this locus.
+ *   - For a *recessive* phenotype, both haplotypes must carry the
+ *     recessive allele (otherwise the dominant one would express).
+ *   - For a *dominant* phenotype, prefer heterozygous (one matching,
+ *     one of the alternative) so the rescued child still shows
+ *     genotypic variety on the chromosome viz; fall back to homozygous
+ *     dominant if the parent pool doesn't include the alternative.
+ *
+ * Allele *instances* are sampled from the combined parent pool — same
+ * pool the natural f2Gamete draws from — so the rescued child reads as
+ * genuinely descended from the founders rather than synthesised.
+ */
+function buildAllelesForPhenotype<T extends Allele>(
+  prng: ReturnType<typeof makeSeededPrng>,
+  parentAAlleles: readonly T[],
+  parentBAlleles: readonly T[],
+  targetType: string,
+  isDominant: boolean,
+): [T, T] {
+  const pool = [...parentAAlleles, ...parentBAlleles]
+  const matching = pool.filter((a) => a.type === targetType)
+  const other = pool.filter((a) => a.type !== targetType)
+
+  if (matching.length === 0) {
+    // Parents don't carry this allele type — can't produce the phenotype.
+    // Fall back to natural draw on this locus; calling code accepts that
+    // the rescue may not perfectly hit its target.
+    return [prng.sampleOne(pool), prng.sampleOne(pool)]
+  }
+  if (!isDominant || other.length === 0) {
+    return [prng.sampleOne(matching), prng.sampleOne(matching)]
+  }
+  // Heterozygous dominant — keeps two distinct allele types on the child.
+  return [prng.sampleOne(matching), prng.sampleOne(other)]
+}
+
+function buildChildForPhenotype(
+  prng: ReturnType<typeof makeSeededPrng>,
+  parentA: Genome,
+  parentB: Genome,
+  pheno: GuaranteedPhenotype,
+  parentATokenId: number,
+  parentBTokenId: number,
+  createdAt: string,
+): Genome {
+  const triggerAlleles = buildAllelesForPhenotype(
+    prng,
+    parentA.trigger.alleles,
+    parentB.trigger.alleles,
+    pheno.trigger,
+    pheno.trigger === DOMINANT_TYPES.trigger,
+  )
+  const filterAlleles = buildAllelesForPhenotype(
+    prng,
+    parentA.filter.alleles,
+    parentB.filter.alleles,
+    pheno.filter,
+    pheno.filter === DOMINANT_TYPES.filter,
+  )
+  return {
+    trigger: {
+      locusId: 'I',
+      alleles: triggerAlleles,
+      dominance: pheno.trigger as Genome['trigger']['dominance'],
+    },
+    filter: {
+      locusId: 'II',
+      alleles: filterAlleles,
+      dominance: pheno.filter as Genome['filter']['dominance'],
+    },
+    parents: [parentATokenId, parentBTokenId],
+    generation: 2,
+    createdAt,
+  }
+}
+
+function buildRandomF2Child(
+  prng: ReturnType<typeof makeSeededPrng>,
+  parentA: Genome,
+  parentB: Genome,
+  parentATokenId: number,
+  parentBTokenId: number,
+  createdAt: string,
+): Genome {
+  const tx = f2Gamete(prng, parentA.trigger.alleles, parentB.trigger.alleles)
+  const ty = f2Gamete(prng, parentA.trigger.alleles, parentB.trigger.alleles)
+  const fx = f2Gamete(prng, parentA.filter.alleles, parentB.filter.alleles)
+  const fy = f2Gamete(prng, parentA.filter.alleles, parentB.filter.alleles)
+  return {
+    trigger: {
+      locusId: 'I',
+      alleles: [tx, ty],
+      dominance: pickDominance('trigger', tx, ty) as Genome['trigger']['dominance'],
+    },
+    filter: {
+      locusId: 'II',
+      alleles: [fx, fy],
+      dominance: pickDominance('filter', fx, fy) as Genome['filter']['dominance'],
+    },
+    parents: [parentATokenId, parentBTokenId],
+    generation: 2,
+    createdAt,
+  }
+}
+
 export function mendelianRecombine(
   parentA: Genome,
   parentB: Genome,
@@ -415,35 +581,55 @@ export function mendelianRecombine(
 ): Genome[] {
   const prng = makeSeededPrng(seed)
   const createdAt = new Date().toISOString()
+
+  // Phase 1 — natural F2 sampling for all `count` children.
   const children: Genome[] = []
-
   for (let i = 0; i < count; i++) {
-    const triggerFromA = prng.sampleOne(parentA.trigger.alleles)
-    const triggerFromB = prng.sampleOne(parentB.trigger.alleles)
-    const filterFromA = prng.sampleOne(parentA.filter.alleles)
-    const filterFromB = prng.sampleOne(parentB.filter.alleles)
+    children.push(
+      buildRandomF2Child(
+        prng,
+        parentA,
+        parentB,
+        parentATokenId,
+        parentBTokenId,
+        createdAt,
+      ),
+    )
+  }
 
-    const triggerDominance = pickDominance('trigger', triggerFromA, triggerFromB)
-    const filterDominance = pickDominance('filter', filterFromA, filterFromB)
-
-    children.push({
-      trigger: {
-        locusId: 'I',
-        alleles: [triggerFromA, triggerFromB],
-        dominance:
-          triggerDominance as Genome['trigger']['dominance'],
-      },
-      filter: {
-        locusId: 'II',
-        alleles: [filterFromA, filterFromB],
-        dominance:
-          filterDominance as Genome['filter']['dominance'],
-      },
-      parents: [parentATokenId, parentBTokenId],
-      // Per spec: skip F1 visually so children read as F2 in the family tree.
-      generation: 2,
-      createdAt,
-    })
+  // Phase 2 — guarantee one-of-each only when the natural draw missed
+  // a phenotype. With 4 distinct phenotypes and >=4 children we always
+  // have enough "duplicate" slots to cover at most 3 missing combos.
+  if (count >= ALL_PHENOTYPES.length) {
+    const present = new Set(children.map(phenoKey))
+    const missing = ALL_PHENOTYPES.filter(
+      (p) => !present.has(`${p.trigger}|${p.filter}`),
+    )
+    if (missing.length > 0) {
+      // Walk children in index order, keeping the first occurrence of
+      // each phenotype intact. Subsequent occurrences are eligible for
+      // replacement — preserves the leftmost natural draw of each combo.
+      const seen = new Set<string>()
+      const replaceable: number[] = []
+      for (let i = 0; i < children.length; i++) {
+        const key = phenoKey(children[i])
+        if (seen.has(key)) replaceable.push(i)
+        else seen.add(key)
+      }
+      for (const pheno of missing) {
+        const idx = replaceable.shift()
+        if (idx === undefined) break
+        children[idx] = buildChildForPhenotype(
+          prng,
+          parentA,
+          parentB,
+          pheno,
+          parentATokenId,
+          parentBTokenId,
+          createdAt,
+        )
+      }
+    }
   }
 
   return children

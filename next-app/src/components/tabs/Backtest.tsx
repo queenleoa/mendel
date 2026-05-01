@@ -1,114 +1,339 @@
 'use client'
 
-import { useState } from 'react'
-import { useAccount, useWalletClient } from 'wagmi'
-import { runInference, walletClientToSigner } from '../../lib/zgInference'
+import { useEffect, useMemo, useState } from 'react'
+import type { ChildResult } from '../../lib/inft'
+import {
+  scoreChildren,
+  type ScoredGenome,
+  type Scoreboard,
+} from '../../lib/backtest/scorer'
+import ChromosomePair from '../ChromosomePair'
 import '../../styles/Backtest.css'
 
-const QUESTION = 'What is 2 + 2? Reply with only the integer answer.'
+// Demo pacing: stagger the rows so the leaderboard reveals one row at a
+// time even though all 9 backtests resolve in ~30ms. Purely cosmetic.
+const REVEAL_DELAY_MS: number = 220
 
-type Meta = { model: string; providerAddress: string }
+type Props = {
+  childResults: ChildResult[] | null
+}
 
-export default function Backtest() {
-  const { isConnected } = useAccount()
-  const { data: walletClient } = useWalletClient()
+type RankedRow = ScoredGenome & {
+  rank: number
+  childTokenId: number
+}
+
+export default function Backtest({ childResults }: Props) {
+  const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null)
   const [running, setRunning] = useState(false)
-  const [status, setStatus] = useState('')
-  const [answer, setAnswer] = useState('')
-  const [error, setError] = useState('')
-  const [meta, setMeta] = useState<Meta | null>(null)
+  const [error, setError] = useState<string>('')
+  const [revealedCount, setRevealedCount] = useState(0)
 
-  const handleAsk = async () => {
-    setRunning(true)
-    setStatus('')
-    setAnswer('')
-    setError('')
-    setMeta(null)
-    try {
-      if (!walletClient) {
-        throw new Error('Wallet client not ready — reconnect from the first tab')
-      }
-      const signer = await walletClientToSigner(walletClient)
-      const result = await runInference(QUESTION, signer, setStatus)
-      setAnswer(result.answer)
-      setMeta({ model: result.model, providerAddress: result.providerAddress })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setRunning(false)
+  const childCount = childResults?.length ?? 0
+
+  // Auto-run when children show up; rerun if the user re-breeds.
+  useEffect(() => {
+    if (!childResults || childResults.length === 0) {
+      setScoreboard(null)
+      setRevealedCount(0)
+      return
     }
-  }
+    let cancelled = false
+    setRunning(true)
+    setError('')
+    setScoreboard(null)
+    setRevealedCount(0)
+    ;(async () => {
+      try {
+        const board = await scoreChildren(childResults.map((c) => c.genome))
+        if (cancelled) return
+        setScoreboard(board)
+      } catch (e) {
+        if (cancelled) return
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setRunning(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [childResults])
+
+  // Stagger the reveal so the leaderboard "completes" rows one at a time.
+  useEffect(() => {
+    if (!scoreboard) return
+    const total = scoreboard.scored.length
+    if (REVEAL_DELAY_MS === 0) {
+      setRevealedCount(total)
+      return
+    }
+    let n = 0
+    setRevealedCount(0)
+    const id = window.setInterval(() => {
+      n += 1
+      setRevealedCount(n)
+      if (n >= total) window.clearInterval(id)
+    }, REVEAL_DELAY_MS)
+    return () => window.clearInterval(id)
+  }, [scoreboard])
+
+  // Sort by totalReturn desc and pair with the on-chain tokenId from the
+  // breed flow output (same index → same child).
+  const rankedRows: RankedRow[] = useMemo(() => {
+    if (!scoreboard || !childResults) return []
+    return scoreboard.scored
+      .map((s, i) => ({
+        ...s,
+        childTokenId: childResults[i].tokenId || childResults[i].predictedTokenId,
+      }))
+      .sort((a, b) => b.result.totalReturn - a.result.totalReturn)
+      .map((row, i) => ({ ...row, rank: i + 1 }))
+  }, [scoreboard, childResults])
 
   return (
     <div className="backtest-container">
       <article className="backtest-card">
         <header className="card-header">
-          <p className="eyebrow">0G Compute · Smoke Test</p>
-          <h1 className="title">Direct Inference Test</h1>
-          <p className="subtitle">
-            Sends the question below to the first available chatbot provider on
-            the 0G Compute Network using your already-connected wallet. On
-            first run you'll be asked to approve a small ledger deposit and a
-            sub-account transfer; after that, only the inference settlement
-            transaction is signed.
-          </p>
+          <div className="card-header-text">
+            <p className="eyebrow">Step 6 · Backtest</p>
+            <h1 className="title">Score the F2 Children</h1>
+            <p className="subtitle">
+              Each newly-bred child is replayed against 30 days of hourly
+              ETH/USDT data using its expressed (dominant) trigger and filter
+              alleles. 20% sizing per entry, 5 bps round-trip cost,
+              long-only paper trades. The top performers are flagged as
+              ready-to-deploy candidates.
+            </p>
+          </div>
         </header>
 
-        <section className="prompt-block">
-          <p className="prompt-label">Prompt</p>
-          <p className="prompt-text">{QUESTION}</p>
-        </section>
-
-        <div className="action-row">
-          <button
-            className="btn btn-primary"
-            onClick={handleAsk}
-            disabled={running || !isConnected}
-            type="button"
-          >
-            {running ? 'Running…' : 'Ask 0G Compute'}
-          </button>
-          {!isConnected && (
-            <span className="hint">Connect MetaMask first.</span>
-          )}
-        </div>
-
-        {(running || status) && (
-          <div className="status-block">
-            <p className="status-label">Status</p>
-            <p className="status-text">
-              {status || 'Idle'}
-              {running && <span className="dot-pulse" aria-hidden="true" />}
+        {childCount === 0 && (
+          <div className="bt-empty">
+            <p className="bt-empty-title">No children to score yet</p>
+            <p className="bt-empty-sub">
+              Cross-breed two founders on the Breed tab — the resulting 9 F2
+              children will land here automatically.
             </p>
           </div>
         )}
 
-        {answer && (
-          <div className="answer-block">
-            <p className="answer-label">Answer</p>
-            <p className="answer-text">{answer}</p>
-            {meta && (
-              <dl className="meta-grid">
-                <div>
-                  <dt>Model</dt>
-                  <dd className="mono">{meta.model}</dd>
-                </div>
-                <div>
-                  <dt>Provider</dt>
-                  <dd className="mono">{meta.providerAddress}</dd>
-                </div>
-              </dl>
-            )}
+        {childCount > 0 && running && (
+          <div className="bt-status">
+            <span className="bt-spin" aria-hidden="true" />
+            <span>Fetching ETH bars and replaying {childCount} genomes…</span>
           </div>
         )}
 
         {error && (
-          <div className="error-block">
-            <p className="error-label">Error</p>
-            <p className="error-text">{error}</p>
+          <div className="bt-error">
+            <p className="bt-error-label">Backtest failed</p>
+            <p className="bt-error-text">{error}</p>
           </div>
+        )}
+
+        {scoreboard && rankedRows.length > 0 && (
+          <>
+            <BenchmarkStrip
+              boardSize={rankedRows.length}
+              benchmarkReturn={scoreboard.benchmark.totalReturn}
+              best={rankedRows[0]?.result.totalReturn ?? 0}
+              avg={
+                rankedRows.reduce((s, r) => s + r.result.totalReturn, 0) /
+                rankedRows.length
+              }
+            />
+
+            <div className="bt-leaderboard">
+              <div className="bt-row bt-row-header">
+                <span className="bt-cell bt-rank">#</span>
+                <span className="bt-cell bt-token">Token</span>
+                <span className="bt-cell bt-genotype">Genotype</span>
+                <span className="bt-cell bt-equity">Equity</span>
+                <span className="bt-cell bt-return">Return</span>
+                <span className="bt-cell bt-trades">Trades</span>
+                <span className="bt-cell bt-win">Win %</span>
+                <span className="bt-cell bt-badge" />
+              </div>
+              {rankedRows.map((row, i) => (
+                <LeaderboardRow
+                  key={row.childTokenId}
+                  row={row}
+                  benchmarkCurve={scoreboard.benchmark.equityCurve}
+                  hidden={i >= revealedCount}
+                />
+              ))}
+            </div>
+          </>
         )}
       </article>
     </div>
   )
+}
+
+// =====================================================================
+//                          Benchmark strip
+// =====================================================================
+
+function BenchmarkStrip({
+  boardSize,
+  benchmarkReturn,
+  best,
+  avg,
+}: {
+  boardSize: number
+  benchmarkReturn: number
+  best: number
+  avg: number
+}) {
+  return (
+    <div className="bt-summary">
+      <div className="bt-summary-cell">
+        <span className="bt-summary-label">Children</span>
+        <span className="bt-summary-value mono">{boardSize}</span>
+      </div>
+      <div className="bt-summary-cell">
+        <span className="bt-summary-label">ETH B&amp;H</span>
+        <span className={`bt-summary-value mono ${returnClass(benchmarkReturn)}`}>
+          {formatPct(benchmarkReturn)}
+        </span>
+      </div>
+      <div className="bt-summary-cell">
+        <span className="bt-summary-label">Top child</span>
+        <span className={`bt-summary-value mono ${returnClass(best)}`}>
+          {formatPct(best)}
+        </span>
+      </div>
+      <div className="bt-summary-cell">
+        <span className="bt-summary-label">Avg child</span>
+        <span className={`bt-summary-value mono ${returnClass(avg)}`}>
+          {formatPct(avg)}
+        </span>
+      </div>
+      <div className="bt-summary-cell">
+        <span className="bt-summary-label">α vs B&amp;H</span>
+        <span className={`bt-summary-value mono ${returnClass(best - benchmarkReturn)}`}>
+          {formatPct(best - benchmarkReturn)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// =====================================================================
+//                          Leaderboard row
+// =====================================================================
+
+function LeaderboardRow({
+  row,
+  benchmarkCurve,
+  hidden,
+}: {
+  row: RankedRow
+  benchmarkCurve: number[]
+  hidden: boolean
+}) {
+  const r = row.result
+  const isTop = row.rank <= 2 && r.totalReturn > 0
+  return (
+    <div
+      className={`bt-row ${isTop ? 'top' : ''} ${hidden ? 'pending' : 'revealed'}`}
+    >
+      <span className="bt-cell bt-rank">{row.rank}</span>
+      <span className="bt-cell bt-token mono">#{row.childTokenId}</span>
+      <span className="bt-cell bt-genotype">
+        <ChromosomePair genome={row.genome} size="sm" />
+      </span>
+      <span className="bt-cell bt-equity">
+        <Sparkline
+          curve={r.equityCurve}
+          benchmark={benchmarkCurve}
+          width={120}
+          height={32}
+          positive={r.totalReturn >= 0}
+        />
+      </span>
+      <span className={`bt-cell bt-return mono ${returnClass(r.totalReturn)}`}>
+        {formatPct(r.totalReturn)}
+      </span>
+      <span className="bt-cell bt-trades mono">{r.tradeCount}</span>
+      <span className="bt-cell bt-win mono">
+        {r.tradeCount > 0 ? `${Math.round(r.winRate * 100)}%` : '—'}
+      </span>
+      <span className="bt-cell bt-badge">
+        {isTop && (
+          <span className="bt-deploy-badge" title="Top performer — ready to deploy">
+            ready ✦
+          </span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+// =====================================================================
+//                          Sparkline (inline SVG)
+// =====================================================================
+
+function Sparkline({
+  curve,
+  benchmark,
+  width,
+  height,
+  positive,
+}: {
+  curve: number[]
+  benchmark: number[]
+  width: number
+  height: number
+  positive: boolean
+}) {
+  if (curve.length < 2) {
+    return <svg width={width} height={height} aria-hidden="true" />
+  }
+  // Shared y-scale across both lines so they're directly comparable.
+  const all = [...curve, ...benchmark]
+  const lo = Math.min(...all)
+  const hi = Math.max(...all)
+  const range = hi - lo || 1
+
+  const toPath = (series: number[]): string => {
+    if (series.length === 0) return ''
+    const dx = width / (series.length - 1)
+    return series
+      .map((v, i) => {
+        const x = i * dx
+        const y = height - ((v - lo) / range) * height
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`
+      })
+      .join(' ')
+  }
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      aria-hidden="true"
+      className={`bt-spark ${positive ? 'pos' : 'neg'}`}
+    >
+      <path d={toPath(benchmark)} className="bt-spark-bench" fill="none" />
+      <path d={toPath(curve)} className="bt-spark-line" fill="none" />
+    </svg>
+  )
+}
+
+// =====================================================================
+//                          Helpers
+// =====================================================================
+
+function formatPct(v: number): string {
+  const pct = v * 100
+  const sign = pct > 0 ? '+' : ''
+  return `${sign}${pct.toFixed(2)}%`
+}
+
+function returnClass(v: number): string {
+  if (v > 0.0005) return 'pos'
+  if (v < -0.0005) return 'neg'
+  return ''
 }

@@ -68,14 +68,17 @@ export function evaluateStrategy(
   }
 
   if (dominantTrigger.type === 'reversion') {
-    // Use the 24h change as a proxy for z-score against a flat mean of 0,
-    // scaled by a fixed sigma of 2% for v1 (hackathon-grade).
-    const SIGMA = 0.02
+    // The genome carries `zThreshold` (in sigmas). Sigma itself is derived
+    // from the snapshot's realized 24h volatility — same data source the
+    // backtest's rolling-window z-score uses, so live and backtest scores
+    // line up. Falls back to 1% if the upstream vol field is missing.
     const zThreshold =
       'zThreshold' in dominantTrigger
         ? Number(dominantTrigger.zThreshold)
         : 1.0
-    const z = change / SIGMA
+    const sigma =
+      market.volatility24hBps > 0 ? market.volatility24hBps / 10_000 : 0.01
+    const z = change / sigma
     if (position === 'flat' && z < -zThreshold) {
       return {
         signal: 'buy',
