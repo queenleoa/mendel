@@ -3,26 +3,30 @@ import { useAccount, useWalletClient } from 'wagmi'
 import { walletClientToSigner } from '../../lib/zgInference'
 import {
   deployMendelAgent,
+  deployMendelBreeder,
   getMendelAgentAddress,
+  getMendelBreederAddress,
   mintFounder,
-  readTokenFromChain,
+  readAgentBreederLink,
   type LineageParams,
   type MintFounderResult,
-  type OnChainTokenSnapshot,
 } from '../../lib/inft'
 import type { Genome } from '../../lib/genome'
 import type { UniverseParams } from './UniverseParameters'
+import ChromosomePair from '../ChromosomePair'
+import LogTicker, { stampLog, type LogEntry } from '../LogTicker'
 import '../../styles/Mint.css'
 
 type FounderId = 'F1' | 'F2'
 
 // =====================================================================
-//                     Hardcoded founder presets
+//                  Hardcoded purebred founder presets
 // =====================================================================
 //
-// Each founder is heterozygous over the same allele pool; only the
-// dominance differs. Breeding F1 × F2 in v1 produces a Punnett-square
-// distribution of children — Mendel's first law in code.
+// Each founder is HOMOZYGOUS at every locus — both haplotypes carry the
+// same allele. Visually, both chromosomes of the pair look identical,
+// which is the textbook "purebred parental" generation. Breeding F1 × F2
+// produces uniformly heterozygous F2 children (per spec, gen=2 in JSON).
 
 const NOW = new Date().toISOString()
 
@@ -31,7 +35,7 @@ const F1_GENOME: Genome = {
     locusId: 'I',
     alleles: [
       { type: 'momentum', lookback: 24, threshold: 0.02 },
-      { type: 'reversion', window: 24, zThreshold: 1.0 },
+      { type: 'momentum', lookback: 24, threshold: 0.02 },
     ],
     dominance: 'momentum',
   },
@@ -39,7 +43,7 @@ const F1_GENOME: Genome = {
     locusId: 'II',
     alleles: [
       { type: 'volatility-narrow', min: 0.007, max: 0.025 },
-      { type: 'volatility-wide', min: 0.005, max: 0.04 },
+      { type: 'volatility-narrow', min: 0.007, max: 0.025 },
     ],
     dominance: 'volatility-narrow',
   },
@@ -52,7 +56,7 @@ const F2_GENOME: Genome = {
   trigger: {
     locusId: 'I',
     alleles: [
-      { type: 'momentum', lookback: 24, threshold: 0.02 },
+      { type: 'reversion', window: 24, zThreshold: 1.0 },
       { type: 'reversion', window: 24, zThreshold: 1.0 },
     ],
     dominance: 'reversion',
@@ -60,7 +64,7 @@ const F2_GENOME: Genome = {
   filter: {
     locusId: 'II',
     alleles: [
-      { type: 'volatility-narrow', min: 0.007, max: 0.025 },
+      { type: 'volatility-wide', min: 0.005, max: 0.04 },
       { type: 'volatility-wide', min: 0.005, max: 0.04 },
     ],
     dominance: 'volatility-wide',
@@ -70,26 +74,24 @@ const F2_GENOME: Genome = {
   createdAt: NOW,
 }
 
-const FOUNDER_LABELS: Record<FounderId, string> = {
-  F1: 'Founder 1',
-  F2: 'Founder 2',
+const FOUNDER_DESCRIPTIONS: Record<FounderId, string> = {
+  F1: 'Momentum × Volatility-Narrow · purebred',
+  F2: 'Mean-Reversion × Volatility-Wide · purebred',
 }
 
-const FOUNDER_DESCRIPTIONS: Record<FounderId, string> = {
-  F1: 'Momentum trigger (24h, 2.0%) · Volatility filter narrow (0.7%–2.5%)',
-  F2: 'Mean-reversion trigger (24h, 1.0σ) · Volatility filter wide (0.5%–4.0%)',
+function genomeFor(id: FounderId): Genome {
+  return id === 'F1' ? F1_GENOME : F2_GENOME
 }
 
 // =====================================================================
-//                    Lineage builder from universe
+//                    Lineage from universe params
 // =====================================================================
 
 function buildLineageParams(universe?: UniverseParams): LineageParams {
-  // Map UI selections → canonical lineage strings used for grouping
-  // strategy iNFTs. Two iNFTs share lineage iff this hashes to the same
-  // bytes32, so the values must be deterministic and human-readable.
   const venue =
-    universe?.venue === 'uniswap' ? 'uniswap-v3' : (universe?.venue || 'uniswap-v3')
+    universe?.venue === 'uniswap'
+      ? 'uniswap-v3'
+      : universe?.venue || 'uniswap-v3'
   const asset = universe?.pair
     ? universe.pair.toUpperCase().replace(/\//g, '/')
     : 'ETH/USDC'
@@ -109,52 +111,98 @@ function buildLineageParams(universe?: UniverseParams): LineageParams {
 
 type Props = {
   universeParams?: UniverseParams
+  onContinue?: () => void
 }
 
 type FounderState = {
   result?: MintFounderResult
-  snapshot?: OnChainTokenSnapshot
-  status?: string
-  error?: string
   busy: boolean
 }
 
 const emptyState: FounderState = { busy: false }
 
-export default function Mint({ universeParams }: Props) {
+export default function Mint({ universeParams, onContinue }: Props) {
   const { isConnected } = useAccount()
   const { data: walletClient } = useWalletClient()
   const [agentAddress, setAgentAddress] = useState<string | null>(
     getMendelAgentAddress(),
   )
+  const [breederAddress, setBreederAddress] = useState<string | null>(
+    getMendelBreederAddress(),
+  )
+  const [agentBreederLink, setAgentBreederLink] = useState<string | null>(null)
   const [deploying, setDeploying] = useState(false)
-  const [deployStatus, setDeployStatus] = useState<string>('')
-  const [deployError, setDeployError] = useState<string>('')
+  const [breederDeploying, setBreederDeploying] = useState(false)
   const [f1, setF1] = useState<FounderState>(emptyState)
   const [f2, setF2] = useState<FounderState>(emptyState)
+  const [logs, setLogs] = useState<LogEntry[]>([])
 
-  // Refresh address from localStorage on mount in case it was set elsewhere.
+  const appendLog = (message: string) =>
+    setLogs((prev) => [...prev, stampLog(message)])
+
   useEffect(() => {
     setAgentAddress(getMendelAgentAddress())
+    setBreederAddress(getMendelBreederAddress())
   }, [])
+
+  useEffect(() => {
+    if (!agentAddress || !breederAddress || !walletClient) {
+      setAgentBreederLink(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const signer = await walletClientToSigner(walletClient)
+        const linked = await readAgentBreederLink(signer)
+        if (!cancelled) setAgentBreederLink(linked)
+      } catch {
+        if (!cancelled) setAgentBreederLink(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [agentAddress, breederAddress, walletClient])
 
   const lineageParams = buildLineageParams(universeParams)
 
   const handleDeploy = async () => {
     if (!walletClient) return
     setDeploying(true)
-    setDeployStatus('Submitting deploy tx (approve in MetaMask)…')
-    setDeployError('')
+    appendLog('Submitting MendelAgent deploy tx (approve in MetaMask)…')
     try {
       const signer = await walletClientToSigner(walletClient)
       const { address, txHash } = await deployMendelAgent(signer)
       setAgentAddress(address)
-      setDeployStatus(`Deployed at ${address} (tx ${txHash.slice(0, 10)}…).`)
+      appendLog(
+        `MendelAgent deployed at ${address} (tx ${txHash.slice(0, 10)}…).`,
+      )
     } catch (e) {
-      setDeployError(e instanceof Error ? e.message : String(e))
-      setDeployStatus('')
+      appendLog(`Agent deploy failed: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setDeploying(false)
+    }
+  }
+
+  const handleDeployBreeder = async () => {
+    if (!walletClient) return
+    setBreederDeploying(true)
+    appendLog('Deploying MendelBreeder (approve in MetaMask)…')
+    try {
+      const signer = await walletClientToSigner(walletClient)
+      const { breederAddress: b, deployTxHash, setBreederTxHash } =
+        await deployMendelBreeder(signer)
+      setBreederAddress(b)
+      const linked = await readAgentBreederLink(signer)
+      setAgentBreederLink(linked)
+      appendLog(
+        `MendelBreeder deployed at ${b} (deploy ${deployTxHash.slice(0, 10)}…, link ${setBreederTxHash.slice(0, 10)}…).`,
+      )
+    } catch (e) {
+      appendLog(`Breeder deploy failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setBreederDeploying(false)
     }
   }
 
@@ -165,95 +213,126 @@ export default function Mint({ universeParams }: Props) {
 
   const handleMint = async (id: FounderId) => {
     if (!walletClient) return
-    const genome = id === 'F1' ? F1_GENOME : F2_GENOME
-    setFounder(id, { busy: true, status: '', error: '', result: undefined, snapshot: undefined })
+    const genome = genomeFor(id)
+    setFounder(id, { busy: true, result: undefined })
+    appendLog(`${id}: starting mint…`)
     try {
       const signer = await walletClientToSigner(walletClient)
       const result = await mintFounder(genome, lineageParams, signer, (m) =>
-        setFounder(id, { status: m }),
+        appendLog(`${id}: ${m}`),
       )
-      setFounder(id, { result, status: 'Reading back from chain…' })
-      const snapshot = await readTokenFromChain(result.tokenId, signer)
-      setFounder(id, { snapshot, status: 'Done.', busy: false })
+      setFounder(id, { result, busy: false })
+      appendLog(
+        `${id}: minted as token #${result.tokenId} (mint ${result.txHash.slice(0, 10)}…).`,
+      )
     } catch (e) {
-      setFounder(id, {
-        error: e instanceof Error ? e.message : String(e),
-        status: '',
-        busy: false,
-      })
+      const msg = e instanceof Error ? e.message : String(e)
+      appendLog(`${id}: mint failed — ${msg}`)
+      setFounder(id, { busy: false })
     }
   }
+
+  const ready = isConnected && agentAddress
 
   return (
     <div className="mint-container">
       <article className="mint-card">
         <header className="card-header">
-          <p className="eyebrow">Step 4 · Mint iNFTs</p>
-          <h1 className="title">Mint Founder Strategies</h1>
-          <p className="subtitle">
-            Each founder is encrypted client-side with a wallet-derived key,
-            uploaded to 0G Storage, and minted as an iNFT on the MendelAgent
-            contract. The on-chain commitments are read back below for
-            verification.
-          </p>
+          <div className="card-header-text">
+            <p className="eyebrow">Step 4 · Mint iNFTs</p>
+            <h1 className="title">Mint Founder Strategies</h1>
+            <p className="subtitle">
+              Each founder is encrypted client-side with a wallet-derived key,
+              uploaded to 0G Storage, and minted as an iNFT on the MendelAgent
+              contract. Both haplotypes carry the same allele — purebred
+              parental stock.
+            </p>
+          </div>
+          {onContinue && (
+            <button
+              className="btn btn-primary card-header-continue"
+              type="button"
+              onClick={onContinue}
+            >
+              Continue →
+            </button>
+          )}
         </header>
 
-        <section className="agent-status">
-          <p className="agent-status-label">MendelAgent contract</p>
-          {agentAddress ? (
-            <div className="agent-status-row">
-              <code className="agent-address">{agentAddress}</code>
-              <button
-                className="btn-link"
-                type="button"
-                onClick={() => {
-                  if (confirm('Reset MendelAgent address?')) {
-                    window.localStorage.removeItem('mendel.agentAddress')
-                    setAgentAddress(null)
-                  }
-                }}
-              >
-                reset
-              </button>
-            </div>
-          ) : (
-            <div className="agent-status-row column">
-              <p className="agent-hint">
-                No address configured. Deploy a fresh contract from your wallet
-                — the address is cached in your browser for subsequent runs.
+        {/* ---- Compact contract strip ---- */}
+        <section className="contract-strip">
+          <ContractBadge
+            label="MendelAgent"
+            address={agentAddress}
+            onReset={() => {
+              if (
+                confirm('Reset MendelAgent address? (Also clears breeder.)')
+              ) {
+                window.localStorage.removeItem('mendel.agentAddress')
+                window.localStorage.removeItem('mendel.breederAddress')
+                setAgentAddress(null)
+                setBreederAddress(null)
+                setAgentBreederLink(null)
+              }
+            }}
+            onDeploy={handleDeploy}
+            deploying={deploying}
+            canDeploy={!!isConnected}
+          />
+          <ContractBadge
+            label="MendelBreeder"
+            address={breederAddress}
+            onReset={() => {
+              if (confirm('Reset MendelBreeder address?')) {
+                window.localStorage.removeItem('mendel.breederAddress')
+                setBreederAddress(null)
+                setAgentBreederLink(null)
+              }
+            }}
+            onDeploy={handleDeployBreeder}
+            deploying={breederDeploying}
+            canDeploy={!!isConnected && !!agentAddress}
+            disabledHint={!agentAddress ? 'deploy agent first' : undefined}
+            link={agentBreederLink}
+          />
+        </section>
+
+        {/* ---- Main grid: founders + logs sidebar ---- */}
+        <div className="mint-layout">
+          <div className="mint-main">
+            <section className="founders-row">
+              <FounderPanel
+                id="F1"
+                state={f1}
+                ready={!!ready}
+                onMint={handleMint}
+              />
+              <FounderPanel
+                id="F2"
+                state={f2}
+                ready={!!ready}
+                onMint={handleMint}
+              />
+            </section>
+
+            <section className="lineage-summary">
+              <p className="lineage-label">
+                Lineage params (committed in lineageHash)
               </p>
-              <button
-                className="btn btn-primary"
-                onClick={handleDeploy}
-                disabled={deploying || !isConnected}
-                type="button"
-              >
-                {deploying ? 'Deploying…' : 'Deploy MendelAgent'}
-              </button>
-              {deployStatus && <p className="deploy-status">{deployStatus}</p>}
-              {deployError && <p className="deploy-error">{deployError}</p>}
-            </div>
-          )}
-        </section>
+              <pre className="lineage-pre">
+                {JSON.stringify(lineageParams, null, 2)}
+              </pre>
+            </section>
+          </div>
 
-        <section className="lineage-summary">
-          <p className="lineage-label">Lineage params (committed in lineageHash)</p>
-          <pre className="lineage-pre">{JSON.stringify(lineageParams, null, 2)}</pre>
-        </section>
-
-        <div className="founder-grid">
-          <FounderCard
-            id="F1"
-            state={f1}
-            disabled={!agentAddress || !isConnected}
-            onMint={handleMint}
-          />
-          <FounderCard
-            id="F2"
-            state={f2}
-            disabled={!agentAddress || !isConnected}
-            onMint={handleMint}
-          />
+          <aside className="mint-sidebar">
+            <LogTicker
+              logs={logs}
+              label="Mint log"
+              emptyHint="Deploy contracts and click Mint to start."
+              fill
+            />
+          </aside>
         </div>
       </article>
     </div>
@@ -261,131 +340,122 @@ export default function Mint({ universeParams }: Props) {
 }
 
 // =====================================================================
-//                            Founder card
+//                          Contract badge
 // =====================================================================
 
-type FounderCardProps = {
+type ContractBadgeProps = {
+  label: string
+  address: string | null
+  link?: string | null
+  onReset: () => void
+  onDeploy: () => void
+  deploying: boolean
+  canDeploy: boolean
+  disabledHint?: string
+}
+
+function ContractBadge({
+  label,
+  address,
+  link,
+  onReset,
+  onDeploy,
+  deploying,
+  canDeploy,
+  disabledHint,
+}: ContractBadgeProps) {
+  if (address) {
+    const linked = link
+      ? link.toLowerCase() === address.toLowerCase()
+      : null
+    return (
+      <div className="contract-badge configured">
+        <span className="contract-badge-label">{label}</span>
+        <code className="contract-badge-address" title={address}>
+          {address.slice(0, 8)}…{address.slice(-4)}
+        </code>
+        {linked === true && (
+          <span className="contract-badge-tick" title="agent.breeder() matches">
+            ✓
+          </span>
+        )}
+        {linked === false && (
+          <span className="contract-badge-warn" title="agent.breeder() mismatch">
+            ⚠
+          </span>
+        )}
+        <button className="btn-link" type="button" onClick={onReset}>
+          reset
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="contract-badge unconfigured">
+      <span className="contract-badge-label">{label}</span>
+      <button
+        className="btn btn-primary contract-badge-deploy"
+        type="button"
+        onClick={onDeploy}
+        disabled={!canDeploy || deploying}
+        title={disabledHint}
+      >
+        {deploying ? 'Deploying…' : `Deploy ${label}`}
+      </button>
+    </div>
+  )
+}
+
+// =====================================================================
+//                            Founder panel
+// =====================================================================
+
+type FounderPanelProps = {
   id: FounderId
   state: FounderState
-  disabled: boolean
+  ready: boolean
   onMint: (id: FounderId) => void
 }
 
-function FounderCard({ id, state, disabled, onMint }: FounderCardProps) {
+function FounderPanel({ id, state, ready, onMint }: FounderPanelProps) {
+  const genome = genomeFor(id)
   return (
-    <div className={`founder-card founder-${id.toLowerCase()}`}>
-      <header className="founder-header">
-        <span className="founder-tag">{id}</span>
-        <span className="founder-name">{FOUNDER_LABELS[id]}</span>
+    <div className={`founder-panel founder-${id.toLowerCase()}`}>
+      <header className="founder-panel-header">
+        <span className="founder-panel-tag">{id}</span>
+        {state.result?.tokenId ? (
+          <span className="founder-panel-token">
+            token #{state.result.tokenId}
+          </span>
+        ) : (
+          <span className="founder-panel-token muted">unminted</span>
+        )}
       </header>
-      <p className="founder-desc">{FOUNDER_DESCRIPTIONS[id]}</p>
 
-      <button
-        className="btn btn-primary founder-mint"
-        onClick={() => onMint(id)}
-        disabled={disabled || state.busy}
-        type="button"
-      >
-        {state.busy ? 'Minting…' : `Mint ${FOUNDER_LABELS[id]}`}
-      </button>
+      <div className="founder-panel-viz">
+        <ChromosomePair genome={genome} size="lg" />
+      </div>
 
-      {state.status && (
-        <p className="founder-status">{state.status}</p>
-      )}
-      {state.error && (
-        <p className="founder-error">{state.error}</p>
-      )}
+      <p className="founder-panel-desc">{FOUNDER_DESCRIPTIONS[id]}</p>
 
-      {state.result && (
-        <div className="founder-result">
-          <p className="result-section-label">Mint result</p>
-          <dl className="result-dl">
-            <div>
-              <dt>tokenId</dt>
-              <dd className="mono accent">#{state.result.tokenId}</dd>
-            </div>
-            <div>
-              <dt>mint tx</dt>
-              <dd>
-                <a
-                  href={`https://chainscan-galileo.0g.ai/tx/${state.result.txHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mono link"
-                >
-                  view transaction
-                </a>
-              </dd>
-            </div>
-            <div>
-              <dt>storage tx</dt>
-              <dd>
-                {state.result.uploadTxHash ? (
-                  <a
-                    href={`https://chainscan-galileo.0g.ai/tx/${state.result.uploadTxHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mono link"
-                  >
-                    view transaction
-                  </a>
-                ) : (
-                  <span className="mono">—</span>
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt>rootHash</dt>
-              <dd className="mono break">{state.result.rootHash}</dd>
-            </div>
-            <div>
-              <dt>encryptedURI</dt>
-              <dd className="mono break">{state.result.encryptedURI}</dd>
-            </div>
-          </dl>
-        </div>
-      )}
-
-      {state.snapshot && (
-        <div className="founder-result onchain">
-          <p className="result-section-label">Read back from MendelAgent</p>
-          <dl className="result-dl">
-            <div>
-              <dt>owner</dt>
-              <dd className="mono break">{state.snapshot.owner}</dd>
-            </div>
-            <div>
-              <dt>generation</dt>
-              <dd className="mono">{state.snapshot.generation}</dd>
-            </div>
-            <div>
-              <dt>parents</dt>
-              <dd className="mono">
-                ({state.snapshot.parentA}, {state.snapshot.parentB})
-              </dd>
-            </div>
-            <div>
-              <dt>encryptedURI</dt>
-              <dd className="mono break">{state.snapshot.encryptedURI}</dd>
-            </div>
-            <div>
-              <dt>metadataHash</dt>
-              <dd className="mono break">{state.snapshot.metadataHash}</dd>
-            </div>
-            <div>
-              <dt>blobHash</dt>
-              <dd className="mono break">{state.snapshot.blobHash}</dd>
-            </div>
-            <div>
-              <dt>keyCommitment</dt>
-              <dd className="mono break">{state.snapshot.keyCommitment}</dd>
-            </div>
-            <div>
-              <dt>lineageHash</dt>
-              <dd className="mono break">{state.snapshot.lineageHash}</dd>
-            </div>
-          </dl>
-        </div>
+      {state.result ? (
+        <a
+          className="founder-panel-link"
+          href={`https://chainscan-galileo.0g.ai/tx/${state.result.txHash}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          view mint tx ↗
+        </a>
+      ) : (
+        <button
+          className="btn btn-primary founder-panel-button"
+          onClick={() => onMint(id)}
+          disabled={!ready || state.busy}
+          type="button"
+        >
+          {state.busy ? 'Minting…' : `Mint ${id}`}
+        </button>
       )}
     </div>
   )

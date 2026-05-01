@@ -1,4 +1,10 @@
-import { keccak256, getBytes, solidityPackedKeccak256, hexlify } from 'ethers'
+import {
+  keccak256,
+  getBytes,
+  solidityPackedKeccak256,
+  hexlify,
+  solidityPacked,
+} from 'ethers'
 import type { JsonRpcSigner } from 'ethers'
 import { Indexer, MemData } from '@0gfoundation/0g-storage-ts-sdk'
 
@@ -271,4 +277,102 @@ export async function downloadGenome(rootHash: string): Promise<Uint8Array> {
     throw new Error(`downloadGenome: ${err?.message ?? 'unknown error'}`)
   }
   return new Uint8Array(await blob.arrayBuffer())
+}
+
+// =====================================================================
+//                       Mendelian recombination
+// =====================================================================
+//
+//  The breeding contract emits a `seed` (bytes32) at request time. We
+//  use it as the entropy source for a deterministic hash-chain PRNG —
+//  any party with the same seed reproduces the same children byte-for-byte.
+//  This is what replaces the TEE in the v1 architecture: a public,
+//  deterministic algorithm running on private inputs.
+
+/** Hash-chain PRNG keyed by a bytes32 seed. */
+function makeSeededPrng(seed: string) {
+  let counter = 0
+  function nextU32(): number {
+    const h = keccak256(
+      solidityPacked(['bytes32', 'uint256'], [seed, counter++]),
+    )
+    return parseInt(h.slice(2, 10), 16) // first 32 bits
+  }
+  function sampleOne<T>(arr: readonly T[]): T {
+    if (arr.length === 0) throw new Error('sampleOne: empty array')
+    return arr[nextU32() % arr.length]
+  }
+  return { nextU32, sampleOne }
+}
+
+// Per-locus dominance rule. The "dominant" type wins iff at least one
+// allele in the child carries it; otherwise the genotype is homozygous
+// recessive and the recessive type expresses.
+const DOMINANT_TYPES = {
+  trigger: 'momentum',
+  filter: 'volatility-narrow',
+} as const
+
+function pickDominance(
+  locus: 'trigger' | 'filter',
+  alleleA: Allele,
+  alleleB: Allele,
+): string {
+  const dom = DOMINANT_TYPES[locus]
+  if (alleleA.type === dom || alleleB.type === dom) return dom
+  return alleleA.type
+}
+
+/**
+ * Pure deterministic Mendelian sampling. For each child, sample one allele
+ * from each parent at each locus; the child genotype is heterozygous over
+ * those two alleles.
+ *
+ * Same `seed` + same parents → same children, every time, in every
+ * implementation. This is the property that lets us run recombination in
+ * plain JS without needing a TEE: anyone with the inputs can verify the
+ * outputs by re-running.
+ */
+export function mendelianRecombine(
+  parentA: Genome,
+  parentB: Genome,
+  parentATokenId: number,
+  parentBTokenId: number,
+  seed: string,
+  count = 9,
+): Genome[] {
+  const prng = makeSeededPrng(seed)
+  const createdAt = new Date().toISOString()
+  const children: Genome[] = []
+
+  for (let i = 0; i < count; i++) {
+    const triggerFromA = prng.sampleOne(parentA.trigger.alleles)
+    const triggerFromB = prng.sampleOne(parentB.trigger.alleles)
+    const filterFromA = prng.sampleOne(parentA.filter.alleles)
+    const filterFromB = prng.sampleOne(parentB.filter.alleles)
+
+    const triggerDominance = pickDominance('trigger', triggerFromA, triggerFromB)
+    const filterDominance = pickDominance('filter', filterFromA, filterFromB)
+
+    children.push({
+      trigger: {
+        locusId: 'I',
+        alleles: [triggerFromA, triggerFromB],
+        dominance:
+          triggerDominance as Genome['trigger']['dominance'],
+      },
+      filter: {
+        locusId: 'II',
+        alleles: [filterFromA, filterFromB],
+        dominance:
+          filterDominance as Genome['filter']['dominance'],
+      },
+      parents: [parentATokenId, parentBTokenId],
+      // Per spec: skip F1 visually so children read as F2 in the family tree.
+      generation: 2,
+      createdAt,
+    })
+  }
+
+  return children
 }

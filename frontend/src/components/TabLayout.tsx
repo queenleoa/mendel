@@ -11,7 +11,6 @@ import Mint from './tabs/Mint'
 import Breed from './tabs/Breed'
 import Backtest from './tabs/Backtest'
 import Trade from './tabs/Trade'
-import GenomeTest from './tabs/GenomeTest'
 import About from './About'
 import logo from '../assets/mendel-logo.png'
 import '../styles/TabLayout.css'
@@ -24,7 +23,7 @@ type TabType =
   | 'breed'
   | 'backtest'
   | 'trade'
-type View = 'main' | 'about' | 'genome-test'
+type View = 'main' | 'about'
 
 export default function TabLayout() {
   const { isConnected } = useAccount()
@@ -83,10 +82,13 @@ export default function TabLayout() {
         <AlphaParameters onContinue={() => setActiveTab('mint')} />
       </div>
       <div hidden={activeTab !== 'mint'} className="tab-pane">
-        <Mint universeParams={universeParams} />
+        <Mint
+          universeParams={universeParams}
+          onContinue={() => setActiveTab('breed')}
+        />
       </div>
       <div hidden={activeTab !== 'breed'} className="tab-pane">
-        <Breed />
+        <Breed onContinue={() => setActiveTab('backtest')} />
       </div>
       <div hidden={activeTab !== 'backtest'} className="tab-pane">
         <Backtest />
@@ -107,26 +109,13 @@ export default function TabLayout() {
           </div>
           <div className="header-right">
             {view === 'main' ? (
-              <div className="header-actions-stack">
-                <button
-                  className="header-action"
-                  onClick={() => setView('about')}
-                  type="button"
-                >
-                  Learn More
-                </button>
-                <button
-                  className="header-action"
-                  onClick={() => setView('genome-test')}
-                  disabled={!isConnected}
-                  title={
-                    isConnected ? undefined : 'Connect a wallet first'
-                  }
-                  type="button"
-                >
-                  Verify storage encryption
-                </button>
-              </div>
+              <button
+                className="header-action"
+                onClick={() => setView('about')}
+                type="button"
+              >
+                Learn More
+              </button>
             ) : (
               <button
                 className="header-action"
@@ -172,13 +161,7 @@ export default function TabLayout() {
       </header>
 
       <main className="tab-content">
-        {view === 'about' ? (
-          <About />
-        ) : view === 'genome-test' ? (
-          <GenomeTest />
-        ) : (
-          renderTabContent()
-        )}
+        {view === 'about' ? <About /> : renderTabContent()}
       </main>
     </div>
   )

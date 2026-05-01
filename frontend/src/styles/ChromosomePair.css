@@ -1,0 +1,121 @@
+.chromosome-pair {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.chromosome-pair-bars {
+  display: flex;
+  gap: 6px;
+}
+
+.chromosome-pair.size-sm .chromosome {
+  width: 20px;
+  height: 92px;
+  border-radius: 10px;
+}
+.chromosome-pair.size-md .chromosome {
+  width: 28px;
+  height: 130px;
+  border-radius: 14px;
+}
+.chromosome-pair.size-lg .chromosome {
+  width: 38px;
+  height: 180px;
+  border-radius: 19px;
+}
+
+.chromosome-pair.size-sm .allele-letter { font-size: 0.65rem; }
+.chromosome-pair.size-md .allele-letter { font-size: 0.78rem; }
+.chromosome-pair.size-lg .allele-letter { font-size: 1rem; }
+
+.chromosome {
+  --arm-color: #888;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 4px 10px rgba(0, 0, 0, 0.14),
+    0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.chromosome-arm {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--arm-color) 100%, white 22%) 0%,
+    var(--arm-color) 50%,
+    color-mix(in srgb, var(--arm-color) 100%, black 22%) 100%
+  );
+  color: rgba(255, 255, 255, 0.97);
+  font-family: var(--mono);
+  font-weight: 700;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+  letter-spacing: 0.04em;
+}
+
+/* Both alleles at a locus are equally legitimate parameter values —
+   we no longer desaturate the recessive arm. Dominance is conveyed
+   solely by the small white dot on the dominant arm below. */
+
+/* Dominance indicator: a small white dot near the telomere end. */
+.chromosome-arm.dom::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.32);
+  transform: translateX(-50%);
+}
+
+.chromosome-arm.chromosome-arm-top.dom::after {
+  top: 5px;
+}
+
+.chromosome-arm.chromosome-arm-bottom.dom::after {
+  bottom: 5px;
+}
+
+.centromere {
+  height: 5px;
+  flex: 0 0 auto;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(0, 0, 0, 0.14);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.allele-letter {
+  display: inline-block;
+  padding: 0 2px;
+  user-select: none;
+}
+
+/* ---- Placeholder (empty slot) ---- */
+
+.chromosome.chromosome-empty {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      var(--bg-soft) 0,
+      var(--bg-soft) 6px,
+      transparent 6px,
+      transparent 12px
+    ),
+    var(--bg-soft);
+  border: 1px dashed var(--line);
+  box-shadow: none;
+}
+
+.chromosome-pair.placeholder .chromosome {
+  opacity: 0.55;
+}
