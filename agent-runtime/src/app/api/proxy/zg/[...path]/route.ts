@@ -20,6 +20,17 @@ export const maxDuration = 60
 
 type Ctx = { params: Promise<{ path: string[] }> }
 
+function corsOrigin(req: NextRequest): string {
+  const allowed = process.env.ALLOWED_ORIGIN
+  if (!allowed || allowed === '*') return '*'
+  const origin = req.headers.get('origin') ?? ''
+  // Comma-separated whitelist support: ALLOWED_ORIGIN="https://a.com,https://b.com"
+  const list = allowed.split(',').map((s) => s.trim()).filter(Boolean)
+  if (list.includes(origin)) return origin
+  // Fall back to the first listed origin so the browser sees a concrete value.
+  return list[0] ?? '*'
+}
+
 async function proxy(req: NextRequest, ctx: Ctx): Promise<Response> {
   const { path } = await ctx.params
   if (!path || path.length === 0) {
@@ -50,7 +61,10 @@ async function proxy(req: NextRequest, ctx: Ctx): Promise<Response> {
         target,
         detail: e instanceof Error ? e.message : String(e),
       },
-      { status: 502 },
+      {
+        status: 502,
+        headers: { 'access-control-allow-origin': corsOrigin(req) },
+      },
     )
   }
 
@@ -58,7 +72,7 @@ async function proxy(req: NextRequest, ctx: Ctx): Promise<Response> {
   const responseHeaders = new Headers()
   const upstreamCt = upstream.headers.get('content-type')
   if (upstreamCt) responseHeaders.set('content-type', upstreamCt)
-  responseHeaders.set('access-control-allow-origin', '*')
+  responseHeaders.set('access-control-allow-origin', corsOrigin(req))
 
   return new Response(body, {
     status: upstream.status,
@@ -78,13 +92,14 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 export async function DELETE(req: NextRequest, ctx: Ctx) {
   return proxy(req, ctx)
 }
-export async function OPTIONS() {
+export async function OPTIONS(req: NextRequest) {
   return new Response(null, {
     status: 204,
     headers: {
-      'access-control-allow-origin': '*',
+      'access-control-allow-origin': corsOrigin(req),
       'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'access-control-allow-headers': 'Content-Type, Authorization',
+      'access-control-max-age': '86400',
     },
   })
 }

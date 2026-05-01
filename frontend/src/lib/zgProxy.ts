@@ -44,8 +44,17 @@ export function installZgProxyFetch(): void {
     else url = input.url
 
     if (HTTP_NODE.test(url)) {
-      const tail = url.slice('http://'.length) // ip:port/path/?query
-      const proxied = `${runtimeUrl}/api/proxy/zg/${tail}`
+      // Split into <ip:port/path> + <?query>, strip any trailing slash from
+      // the path part. Next.js 308-redirects URLs with trailing slashes by
+      // default, which breaks cross-origin POST + preflight.
+      const tail = url.slice('http://'.length)
+      const qIdx = tail.indexOf('?')
+      const pathPart = (qIdx >= 0 ? tail.slice(0, qIdx) : tail).replace(
+        /\/+$/,
+        '',
+      )
+      const queryPart = qIdx >= 0 ? tail.slice(qIdx) : ''
+      const proxied = `${runtimeUrl}/api/proxy/zg/${pathPart}${queryPart}`
       // Re-build the request: if `input` was a Request object, copy its
       // body/method/headers; otherwise just forward `init`.
       if (typeof input === 'string' || input instanceof URL) {
