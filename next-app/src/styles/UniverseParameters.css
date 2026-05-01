@@ -1,0 +1,138 @@
+.universe-container {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+}
+
+.universe-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 2.75rem 3rem;
+  max-width: 720px;
+  width: 100%;
+  box-shadow: var(--shadow-sm);
+  animation: fadeIn 0.4s ease-out;
+}
+
+.universe-card .card-header {
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.universe-card .eyebrow {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--ink-muted);
+  margin-bottom: 0.75rem;
+}
+
+.universe-card .title {
+  font-family: var(--serif);
+  font-size: 1.85rem;
+  font-weight: 600;
+  margin: 0 0 0.85rem 0;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.universe-card .subtitle {
+  font-size: 0.98rem;
+  color: var(--ink-soft);
+  line-height: 1.65;
+  max-width: 60ch;
+}
+
+.universe-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.field label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.field input,
+.field select {
+  font-family: var(--sans);
+  font-size: 0.98rem;
+  color: var(--ink);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  width: 100%;
+}
+
+.field input::placeholder {
+  color: var(--ink-muted);
+}
+
+.field input:hover,
+.field select:hover {
+  border-color: var(--ink-muted);
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.field select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%237a746a' d='M6 8 0 0h12z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.95rem center;
+  padding-right: 2.25rem;
+}
+
+.field-hint {
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+  margin-top: 0.1rem;
+}
+
+.form-footer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.form-hint {
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+@media (max-width: 640px) {
+  .universe-card {
+    padding: 2rem 1.5rem;
+  }
+
+  .universe-card .title {
+    font-size: 1.55rem;
+  }
+}
