@@ -23,8 +23,14 @@ let installed = false
 
 export function installZgProxyFetch(): void {
   if (installed) return
-  if (!runtimeUrl) return
+  if (!runtimeUrl) {
+    console.info(
+      '[mendel/zgProxy] no VITE_AGENT_RUNTIME_URL — proxy disabled, direct HTTP fetches will be used (works on localhost, blocked on HTTPS)',
+    )
+    return
+  }
   installed = true
+  console.info(`[mendel/zgProxy] proxy installed → ${runtimeUrl}/api/proxy/zg/…`)
 
   const original = window.fetch.bind(window)
 
