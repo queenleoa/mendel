@@ -455,7 +455,9 @@ export async function breedFlow(
     const childKeyCommit = deriveKeyCommitment(owner, predictedId)
 
     log(`Child ${i + 1}/9 → uploading to 0G Storage (approve in MetaMask)…`)
-    const upload = await uploadGenome(encrypted, signer)
+    const upload = await uploadGenome(encrypted, signer, (m) =>
+      log(`Child ${i + 1}/9 → ${m}`),
+    )
 
     const child: ChildResult = {
       tokenId: 0, // filled in after fulfill
@@ -606,7 +608,7 @@ export async function mintFounder(
   const lineageH = computeLineageHash(lineageParams)
 
   onStatus('Uploading ciphertext to 0G Storage (approve in MetaMask)…')
-  const upload = await uploadGenome(encrypted, signer)
+  const upload = await uploadGenome(encrypted, signer, onStatus)
   const encryptedURI = `0g://${upload.rootHash}`
 
   onStatus('Calling MendelAgent.mintFounder() (approve in MetaMask)…')

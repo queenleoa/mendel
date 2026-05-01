@@ -223,15 +223,37 @@ export async function decryptGenome(
 
 export type UploadResult = { rootHash: string; txHash: string }
 
-/**
- * Upload encrypted bytes to 0G Storage. Returns the root hash (storage
- * pointer) and the chain tx hash (the on-chain submission record).
- *
- * The signer's wallet pays for the upload submission tx. Both balance
- * on the wallet's account and acknowledgement of the storage indexer
- * are required.
- */
-export async function uploadGenome(
+// Upload reliability knobs. The 0G storage indexer/nodes occasionally hang
+// (no response) or fail with a transient "Network Error" from axios; the
+// SDK does not surface a timeout. Without this wrapper the breed flow
+// freezes on the first stuck child and never returns. Total worst-case
+// wall time = MAX_ATTEMPTS * TIMEOUT_MS + cumulative backoff.
+const UPLOAD_TIMEOUT_MS = 90_000
+const UPLOAD_MAX_ATTEMPTS = 3
+const UPLOAD_BACKOFF_MS = 2_000
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label}: timed out after ${Math.round(ms / 1000)}s`)),
+      ms,
+    )
+    p.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
+async function uploadOnce(
   encrypted: Uint8Array,
   signer: JsonRpcSigner,
 ): Promise<UploadResult> {
@@ -252,7 +274,9 @@ export async function uploadGenome(
   )
   if (uploadErr) {
     // Treat "data already uploaded" as success — same root hash means
-    // this exact blob is already pinned.
+    // this exact blob is already pinned. Crucially this is also what we
+    // hit when a previous attempt did make it through but appeared to
+    // fail client-side, so retry-on-timeout is idempotent.
     if (/already.*upload/i.test(uploadErr.message)) {
       const txHash = tx && 'txHash' in tx ? tx.txHash : ''
       return { rootHash, txHash }
@@ -263,6 +287,54 @@ export async function uploadGenome(
   // ({txHashes, rootHashes, txSeqs}); MemData yields the single shape.
   const txHash = 'txHash' in tx ? tx.txHash : tx.txHashes[0]
   return { rootHash, txHash }
+}
+
+/**
+ * Upload encrypted bytes to 0G Storage. Returns the root hash (storage
+ * pointer) and the chain tx hash (the on-chain submission record).
+ *
+ * The signer's wallet pays for the upload submission tx. Wraps the SDK
+ * call with a per-attempt timeout + bounded retry — a single hung node
+ * would otherwise freeze the breed flow indefinitely.
+ *
+ * `onProgress` (optional) receives a human-readable status string for
+ * each retry attempt and each failure, so callers can surface progress
+ * in the UI log.
+ */
+export async function uploadGenome(
+  encrypted: Uint8Array,
+  signer: JsonRpcSigner,
+  onProgress?: (msg: string) => void,
+): Promise<UploadResult> {
+  let lastErr: Error | null = null
+  for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      onProgress?.(
+        `retrying upload (attempt ${attempt}/${UPLOAD_MAX_ATTEMPTS})…`,
+      )
+    }
+    try {
+      return await withTimeout(
+        uploadOnce(encrypted, signer),
+        UPLOAD_TIMEOUT_MS,
+        'uploadGenome',
+      )
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e))
+      const willRetry = attempt < UPLOAD_MAX_ATTEMPTS
+      onProgress?.(
+        `upload attempt ${attempt}/${UPLOAD_MAX_ATTEMPTS} failed: ${lastErr.message}${
+          willRetry ? ' — will retry' : ''
+        }`,
+      )
+      if (willRetry) {
+        await sleep(UPLOAD_BACKOFF_MS * attempt) // 2s, then 4s
+      }
+    }
+  }
+  throw new Error(
+    `uploadGenome: failed after ${UPLOAD_MAX_ATTEMPTS} attempts — ${lastErr?.message ?? 'unknown'}`,
+  )
 }
 
 /**
