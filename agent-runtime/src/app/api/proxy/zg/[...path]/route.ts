@@ -24,10 +24,14 @@ function corsOrigin(req: NextRequest): string {
   const allowed = process.env.ALLOWED_ORIGIN
   if (!allowed || allowed === '*') return '*'
   const origin = req.headers.get('origin') ?? ''
-  // Comma-separated whitelist support: ALLOWED_ORIGIN="https://a.com,https://b.com"
-  const list = allowed.split(',').map((s) => s.trim()).filter(Boolean)
+  // Comma-separated whitelist support: ALLOWED_ORIGIN="https://a.com,https://b.com".
+  // Trailing slashes are stripped — browsers send `Origin` without one,
+  // so the response header must match without one too.
+  const list = allowed
+    .split(',')
+    .map((s) => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean)
   if (list.includes(origin)) return origin
-  // Fall back to the first listed origin so the browser sees a concrete value.
   return list[0] ?? '*'
 }
 

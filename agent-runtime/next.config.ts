@@ -1,6 +1,21 @@
 import type { NextConfig } from 'next'
 
-const allowedOrigin = process.env.ALLOWED_ORIGIN || '*'
+// Normalize ALLOWED_ORIGIN: browsers compare `Access-Control-Allow-Origin`
+// character-for-character against the request's `Origin` header, which is
+// never sent with a trailing slash. We strip any trailing slashes from the
+// env value so responses match regardless of how the operator wrote it.
+function normalizeOrigin(raw: string | undefined): string {
+  if (!raw || raw === '*') return '*'
+  return (
+    raw
+      .split(',')
+      .map((s) => s.trim().replace(/\/+$/, ''))
+      .filter(Boolean)
+      .join(',') || '*'
+  )
+}
+
+const allowedOrigin = normalizeOrigin(process.env.ALLOWED_ORIGIN)
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
