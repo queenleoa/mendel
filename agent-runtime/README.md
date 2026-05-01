@@ -25,7 +25,7 @@ npm run dev          # http://localhost:3001
 
 ## Cron
 
-`vercel.json` schedules `/api/cron/tick` hourly (free tier minimum). Set `CRON_SECRET` in Vercel and the route checks `Authorization: Bearer <secret>`. Vercel sends this automatically for cron-triggered hits.
+`vercel.json` registers a single Vercel Cron at `*/5 * * * *` (every 5 minutes), hitting `/api/cron/tick`. Pro tier required (Hobby restricts cron to daily). Vercel auto-injects `Authorization: Bearer <CRON_SECRET>` for cron-triggered hits — set `CRON_SECRET` in the project's env vars and the route enforces it.
 
 ## Endpoints
 
