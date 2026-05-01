@@ -2,6 +2,9 @@ import type { NextConfig } from 'next'
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // Don't 308-redirect URLs with trailing slashes — breaks the 0G storage
+  // SDK's path shape when it goes through `/api/proxy/zg/[...path]`.
+  skipTrailingSlashRedirect: true,
   // Some 0G/web3 packages ship as ESM and reach into Node built-ins; let
   // Next transpile them so webpack can apply the browser polyfill fallbacks
   // declared below.

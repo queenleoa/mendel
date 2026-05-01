@@ -1,7 +1,7 @@
 // Run once to create the schema in your Neon database.
 //   npm run db:setup
 //
-// Reads DATABASE_URL from agent-runtime/.env.local or agent-runtime/.env.
+// Reads DATABASE_URL from next-app/.env.local or next-app/.env.
 import { Pool } from '@neondatabase/serverless'
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -40,7 +40,7 @@ loadEnvFile('.env')
 
 if (!process.env.DATABASE_URL) {
   console.error(
-    'DATABASE_URL not set. Add it to agent-runtime/.env.local or .env, e.g.:\n' +
+    'DATABASE_URL not set. Add it to next-app/.env.local or .env, e.g.:\n' +
       "  DATABASE_URL='postgresql://user:pw@host/dbname?sslmode=require'",
   )
   process.exit(1)

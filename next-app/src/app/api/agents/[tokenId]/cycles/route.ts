@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listCycles } from '@/lib/db'
+import { listCycles } from '@/lib/runtime/db'
 
 export const dynamic = 'force-dynamic'
 

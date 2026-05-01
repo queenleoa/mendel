@@ -10,8 +10,12 @@ export const maxDuration = 60
  * The indexer returns storage-node URLs over plain HTTP (e.g.
  * `http://34.83.53.209:5678`), which browsers refuse to fetch from an
  * HTTPS page (mixed-content blocking). The frontend rewrites those URLs
- * to `<this runtime>/api/proxy/zg/<ip>:<port>/<path>` so they go over
- * HTTPS to us, and we forward to the original HTTP target server-side.
+ * to `<this app>/api/proxy/zg/<ip>:<port>/<path>` so they go over HTTPS
+ * to us, and we forward to the original HTTP target server-side.
+ *
+ * Note: with the merged frontend + runtime this is same-origin, so CORS
+ * on this route is a no-op in practice. Headers retained as defense in
+ * depth in case the proxy is ever embedded cross-origin.
  *
  * The path after `/api/proxy/zg/` is treated literally as the HTTP
  * target's authority + path, e.g.

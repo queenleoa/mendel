@@ -7,11 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:setup": "node ./db/setup.mjs"
   },
   "dependencies": {
     "@0gfoundation/0g-storage-ts-sdk": "^1.2.8",
     "@0glabs/0g-serving-broker": "^0.7.5",
+    "@neondatabase/serverless": "^0.10.4",
     "@tanstack/react-query": "^5.56.2",
     "ethers": "^6.16.0",
     "github-markdown-css": "^5.9.0",
@@ -20,6 +22,7 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "server-only": "^0.0.1",
     "viem": "^2.21.1",
     "wagmi": "^2.11.4"
   },

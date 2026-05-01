@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { upsertAgent } from '@/lib/db'
-import type { Genome, LineageParams } from '@/lib/types'
+import { upsertAgent } from '@/lib/runtime/db'
+import type { Genome, LineageParams } from '@/lib/runtime/types'
 
 export const dynamic = 'force-dynamic'
 

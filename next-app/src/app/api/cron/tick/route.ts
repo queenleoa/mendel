@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listActiveAgents } from '@/lib/db'
-import { runCycle } from '@/lib/cycle'
+import { listActiveAgents } from '@/lib/runtime/db'
+import { runCycle } from '@/lib/runtime/cycle'
 
 export const dynamic = 'force-dynamic'
 // Hobby tier caps at 10s; Pro at 60s. Iterate small fleets only.
 export const maxDuration = 60
 
 /**
- * Vercel Cron entry point. Hourly on the free tier (`vercel.json`).
+ * Vercel Cron entry point. Schedule lives in `vercel.json`.
  * For each active agent, run one cycle and collect the outcome.
  */
 export async function GET(req: NextRequest) {

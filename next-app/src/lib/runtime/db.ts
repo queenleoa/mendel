@@ -1,3 +1,7 @@
+// Server-only — guards against accidental client-bundle imports of
+// @neondatabase/serverless + DATABASE_URL leakage.
+import 'server-only'
+
 import { neon } from '@neondatabase/serverless'
 import type { Agent, AgentStatus, Cycle, Genome, LineageParams } from './types'
 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { listActiveAgents } from '@/lib/db'
+import { listActiveAgents } from '@/lib/runtime/db'
 
 export const dynamic = 'force-dynamic'
 

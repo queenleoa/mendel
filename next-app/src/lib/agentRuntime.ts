@@ -1,14 +1,12 @@
-// Thin client for the agent-runtime Next.js backend.
+// Thin client for the agent-runtime API.
 //
-// In dev, both apps run side-by-side: Next-app on 5173, agent-runtime on
-// 3001. In prod, point NEXT_PUBLIC_AGENT_RUNTIME_URL at the deployed
-// runtime URL.
+// Co-hosted with the frontend (App Router routes under /app/api/*), so all
+// fetches are same-origin and `BASE` is empty. We still export
+// `RUNTIME_BASE_URL` for the Trade tab's status display.
 
 import type { Genome } from './genome'
 
-const BASE =
-  process.env.NEXT_PUBLIC_AGENT_RUNTIME_URL?.replace(/\/$/, '') ??
-  'http://localhost:3001'
+const BASE = ''
 
 export type RuntimeLineage = {
   asset: string
@@ -110,4 +108,6 @@ export async function listCycles(
   )
 }
 
-export const RUNTIME_BASE_URL = BASE
+// Display value for the Trade tab. Empty `BASE` means same-origin, so we
+// surface that explicitly rather than rendering a blank string.
+export const RUNTIME_BASE_URL = '/api (same origin)'

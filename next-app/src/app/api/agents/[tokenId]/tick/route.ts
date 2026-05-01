@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { runCycle } from '@/lib/cycle'
+import { runCycle } from '@/lib/runtime/cycle'
 
 export const dynamic = 'force-dynamic'
 // 60s on Vercel Pro; on Hobby this is capped at 10s.
