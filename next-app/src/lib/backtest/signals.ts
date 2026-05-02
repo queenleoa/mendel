@@ -1,5 +1,5 @@
 import type { Allele, Genome, Locus } from '../genome'
-import type { Bar } from './data'
+import { BARS_PER_HOUR, INTERVAL_MINUTES, type Bar } from './data'
 
 // =====================================================================
 //                         Dominance helper
@@ -22,8 +22,9 @@ export type TriggerSignal = 'LONG' | 'EXIT' | 'NEUTRAL'
 
 /**
  * Compute the trigger signal for `bars[i]` from the genome's expressed
- * trigger allele.  Returns `NEUTRAL` until enough history has accrued for
- * the lookback / window.
+ * trigger allele. The genome carries lookback / window in *hours* per the
+ * Universe-tab spec; this helper converts to bar count using
+ * `BARS_PER_HOUR` so the same genome runs against any bar interval.
  */
 export function computeTriggerSignal(
   genome: Genome,
@@ -33,11 +34,11 @@ export function computeTriggerSignal(
   const allele = getExpressedAllele(genome.trigger)
 
   if (allele.type === 'momentum') {
-    const lookback = allele.lookback
+    const lookbackBars = Math.round(allele.lookback * BARS_PER_HOUR)
     const threshold = allele.threshold
-    if (i < lookback) return 'NEUTRAL'
+    if (i < lookbackBars) return 'NEUTRAL'
 
-    const prev = bars[i - lookback].close
+    const prev = bars[i - lookbackBars].close
     if (prev <= 0) return 'NEUTRAL'
     const pctChange = bars[i].close / prev - 1
     if (pctChange > threshold) return 'LONG'
@@ -46,11 +47,11 @@ export function computeTriggerSignal(
   }
 
   if (allele.type === 'reversion') {
-    const window = allele.window
+    const windowBars = Math.round(allele.window * BARS_PER_HOUR)
     const zThreshold = allele.zThreshold
-    if (i < window) return 'NEUTRAL'
+    if (i < windowBars) return 'NEUTRAL'
 
-    const recent = bars.slice(i - window, i).map((b) => b.close)
+    const recent = bars.slice(i - windowBars, i).map((b) => b.close)
     const mean = recent.reduce((a, b) => a + b, 0) / recent.length
     const variance =
       recent.reduce((acc, x) => acc + (x - mean) ** 2, 0) / recent.length
@@ -70,27 +71,45 @@ export function computeTriggerSignal(
 //                        Filter (vol band)
 // =====================================================================
 
-const FILTER_VOL_WINDOW = 24 // hours
+const FILTER_VOL_HOURS = 24
+const FILTER_VOL_BARS = Math.round(FILTER_VOL_HOURS * BARS_PER_HOUR)
+const PERIODS_PER_DAY = (24 * 60) / INTERVAL_MINUTES // 288 at 5m, 24 at 1h
 
 /**
- * Volatility filter — true iff the rolling-window vol ratio (std/mean of
- * the last 24 closes) sits inside the expressed allele's [min, max] band.
- * Both `volatility-narrow` and `volatility-wide` carry the same shape.
+ * Volatility filter — true iff the **daily realized volatility** over the
+ * trailing 24h sits inside the expressed allele's `[min, max]` band.
+ *
+ * Daily realized vol is the standard market measure of "how volatile is
+ * the asset" and is what the user-facing band labels mean by e.g. `0.7`
+ * → 0.7% daily vol. Computed as `std(per-bar returns) × √(periods/day)`,
+ * which scales correctly across bar intervals (5m → ×√288, 1h → ×√24,
+ * etc.) so the same allele bands work at any timeframe.
+ *
+ * NOTE: prior versions computed `std(closes) / mean(closes)`, which has
+ * totally different units (price-spread fraction, not return-vol) and
+ * was off by ~3-4× in magnitude for ETH at typical levels — most trades
+ * were being silently filtered out.
  */
 export function checkFilter(genome: Genome, bars: Bar[], i: number): boolean {
-  if (i < FILTER_VOL_WINDOW) return false
+  if (i < FILTER_VOL_BARS + 1) return false
   const allele = getExpressedAllele(genome.filter)
   // Type-narrow: both volatility variants carry min/max — defensive guard
   // in case the union widens later.
   if (!('min' in allele && 'max' in allele)) return false
 
-  const recent = bars.slice(i - FILTER_VOL_WINDOW, i).map((b) => b.close)
-  const mean = recent.reduce((a, b) => a + b, 0) / recent.length
-  if (mean <= 0) return false
-  const variance =
-    recent.reduce((acc, x) => acc + (x - mean) ** 2, 0) / recent.length
-  const std = Math.sqrt(variance)
-  const volRatio = std / mean // e.g. 0.012 == 1.2% intraday vol
+  const returns: number[] = []
+  for (let j = i - FILTER_VOL_BARS + 1; j <= i; j++) {
+    const prev = bars[j - 1].close
+    if (prev <= 0) continue
+    returns.push(bars[j].close / prev - 1)
+  }
+  if (returns.length === 0) return false
 
-  return volRatio >= allele.min && volRatio <= allele.max
+  const mean = returns.reduce((a, b) => a + b, 0) / returns.length
+  const variance =
+    returns.reduce((acc, x) => acc + (x - mean) ** 2, 0) / returns.length
+  const stdReturns = Math.sqrt(variance)
+  const dailyVol = stdReturns * Math.sqrt(PERIODS_PER_DAY)
+
+  return dailyVol >= allele.min && dailyVol <= allele.max
 }

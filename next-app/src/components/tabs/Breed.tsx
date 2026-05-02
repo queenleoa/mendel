@@ -1,18 +1,20 @@
 'use client'
 
 import BreedingFlow from '../BreedingFlow'
-import type { ChildResult } from '../../lib/inft'
+import type { BreedFlowResult } from '../../lib/inft'
 
 type Props = {
   onContinue?: () => void
-  onChildrenReady?: (children: ChildResult[]) => void
+  onBreedComplete?: (result: BreedFlowResult) => void
+  initialResult?: BreedFlowResult | null
 }
 
-export default function Breed({ onContinue, onChildrenReady }: Props) {
+export default function Breed({ onContinue, onBreedComplete, initialResult }: Props) {
   return (
     <BreedingFlow
       onContinue={onContinue}
-      onChildrenReady={onChildrenReady}
+      onBreedComplete={onBreedComplete}
+      initialResult={initialResult}
     />
   )
 }

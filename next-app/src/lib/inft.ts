@@ -7,7 +7,11 @@ import {
   solidityPacked,
   toUtf8Bytes,
 } from 'ethers'
-import type { JsonRpcSigner } from 'ethers'
+import type {
+  ContractTransactionReceipt,
+  ContractTransactionResponse,
+  JsonRpcSigner,
+} from 'ethers'
 import MendelAgentArtifact from '../contracts/MendelAgent.json'
 import MendelBreederArtifact from '../contracts/MendelBreeder.json'
 import {
@@ -22,6 +26,72 @@ import {
   uploadGenome,
   type Genome,
 } from './genome'
+
+// =====================================================================
+//             Tx submission knobs (0G testnet workarounds)
+// =====================================================================
+//
+// 0G's RPC sometimes hands MetaMask a near-zero gas-price estimate,
+// which leaves contract txs stuck pending in the mempool. Once one is
+// stuck, the next submission either reuses the same nonce ("replacement
+// underpriced") or skips ahead ("nonce too high") and the UI hangs. Pin
+// a generous 50-gwei price on every write so the network always has
+// incentive to mine it. Same constant used in zgInference.ts.
+
+const TX_GAS_PRICE = 50_000_000_000n // 50 gwei in wei (neuron)
+const TX_OVERRIDES = { gasPrice: TX_GAS_PRICE } as const
+const TX_WAIT_TIMEOUT_MS = 90_000
+
+/**
+ * Wrap `tx.wait()` with a timeout so a stuck tx can't freeze the UI
+ * indefinitely. Throws an actionable error pointing the user at
+ * MetaMask's Activity panel for cancel/speed-up.
+ */
+async function waitForTxWithTimeout(
+  tx: ContractTransactionResponse,
+  label: string,
+): Promise<ContractTransactionReceipt> {
+  const TIMEOUT = Symbol('tx-timeout')
+  const winner = await Promise.race([
+    tx.wait(),
+    new Promise<typeof TIMEOUT>((resolve) =>
+      setTimeout(() => resolve(TIMEOUT), TX_WAIT_TIMEOUT_MS),
+    ),
+  ])
+  if (winner === TIMEOUT) {
+    throw new Error(
+      `${label}: tx ${tx.hash.slice(0, 10)}… stuck pending after ${
+        TX_WAIT_TIMEOUT_MS / 1000
+      }s. ` +
+        `In MetaMask: open Activity → speed up or cancel the transaction. ` +
+        `If this keeps happening: Settings → Advanced → "Clear activity tab data" to resync the local nonce.`,
+    )
+  }
+  if (!winner) {
+    throw new Error(`${label}: receipt was null`)
+  }
+  return winner
+}
+
+/**
+ * Translate the raw ethers error message into something a user can
+ * actually act on — most commonly nonce desync or insufficient funds.
+ */
+function decorateTxError(label: string, e: unknown): Error {
+  const msg = e instanceof Error ? e.message : String(e)
+  if (/nonce/i.test(msg) || /already known/i.test(msg)) {
+    return new Error(
+      `${label}: nonce error — ${msg}. ` +
+        `Fix: open MetaMask → Settings → Advanced → "Clear activity tab data" to resync, then retry.`,
+    )
+  }
+  if (/insufficient funds/i.test(msg)) {
+    return new Error(
+      `${label}: insufficient funds — top up the wallet at the 0G faucet.`,
+    )
+  }
+  return e instanceof Error ? e : new Error(msg)
+}
 
 // =====================================================================
 //                          Address handling
@@ -89,9 +159,14 @@ export async function deployMendelAgent(
     MendelAgentArtifact.bytecode,
     signer,
   )
-  const contract = await factory.deploy(owner)
+  let contract
+  try {
+    contract = await factory.deploy(owner, TX_OVERRIDES)
+  } catch (e) {
+    throw decorateTxError('deployMendelAgent', e)
+  }
   const tx = contract.deploymentTransaction()
-  await contract.waitForDeployment()
+  if (tx) await waitForTxWithTimeout(tx, 'deployMendelAgent')
   const address = await contract.getAddress()
   setMendelAgentAddress(address)
   return { address, txHash: tx?.hash ?? '' }
@@ -129,14 +204,24 @@ export async function deployMendelBreeder(
     MendelBreederArtifact.bytecode,
     signer,
   )
-  const contract = await factory.deploy(agentAddress)
+  let contract
+  try {
+    contract = await factory.deploy(agentAddress, TX_OVERRIDES)
+  } catch (e) {
+    throw decorateTxError('deployMendelBreeder', e)
+  }
   const deployTx = contract.deploymentTransaction()
-  await contract.waitForDeployment()
+  if (deployTx) await waitForTxWithTimeout(deployTx, 'deployMendelBreeder')
   const breederAddress = await contract.getAddress()
 
   const agent = new Contract(agentAddress, MendelAgentArtifact.abi, signer)
-  const setTx = await agent.setBreeder(breederAddress)
-  await setTx.wait()
+  let setTx
+  try {
+    setTx = await agent.setBreeder(breederAddress, TX_OVERRIDES)
+  } catch (e) {
+    throw decorateTxError('setBreeder', e)
+  }
+  await waitForTxWithTimeout(setTx, 'setBreeder')
 
   setMendelBreederAddress(breederAddress)
 
@@ -190,13 +275,22 @@ export async function requestBreeding(
       [owner, parentATokenId, parentBTokenId, BigInt(Date.now())],
     ),
   )
-  const tx = await breeder.breed(parentATokenId, parentBTokenId, authHash)
-  const receipt = await tx.wait()
-  if (!receipt) throw new Error('requestBreeding: tx not mined')
+  let tx: ContractTransactionResponse
+  try {
+    tx = await breeder.breed(
+      parentATokenId,
+      parentBTokenId,
+      authHash,
+      TX_OVERRIDES,
+    )
+  } catch (e) {
+    throw decorateTxError('requestBreeding', e)
+  }
+  const receipt = await waitForTxWithTimeout(tx, 'requestBreeding')
 
   let requestId = 0
   let seed = ''
-  for (const log of receipt.logs as readonly { topics: string[]; data: string }[]) {
+  for (const log of receipt.logs as readonly { topics: readonly string[]; data: string }[]) {
     try {
       const parsed = breeder.interface.parseLog({
         topics: [...log.topics],
@@ -289,19 +383,24 @@ export async function fulfillBreedingTx(
 
   const signature = await signer.signTypedData(domain, types, value)
 
-  const tx = await breeder.fulfillBreeding(
-    requestId,
-    uris,
-    blobs,
-    metas,
-    keys,
-    signature,
-  )
-  const receipt = await tx.wait()
-  if (!receipt) throw new Error('fulfillBreeding: tx not mined')
+  let tx: ContractTransactionResponse
+  try {
+    tx = await breeder.fulfillBreeding(
+      requestId,
+      uris,
+      blobs,
+      metas,
+      keys,
+      signature,
+      TX_OVERRIDES,
+    )
+  } catch (e) {
+    throw decorateTxError('fulfillBreeding', e)
+  }
+  const receipt = await waitForTxWithTimeout(tx, 'fulfillBreeding')
 
   let childTokenIds: number[] = []
-  for (const log of receipt.logs as readonly { topics: string[]; data: string }[]) {
+  for (const log of receipt.logs as readonly { topics: readonly string[]; data: string }[]) {
     try {
       const parsed = breeder.interface.parseLog({
         topics: [...log.topics],
@@ -339,6 +438,8 @@ export type ChildResult = {
 }
 
 export type BreedFlowResult = {
+  parentATokenId: number
+  parentBTokenId: number
   requestId: number
   seed: string
   requestTxHash: string
@@ -502,6 +603,8 @@ export async function breedFlow(
   emit({ type: 'fulfilled', childTokenIds, txHash: fulfillTxHash })
 
   return {
+    parentATokenId,
+    parentBTokenId,
     requestId,
     seed,
     requestTxHash,
@@ -612,22 +715,27 @@ export async function mintFounder(
   const encryptedURI = `0g://${upload.rootHash}`
 
   onStatus('Calling MendelAgent.mintFounder() (approve in MetaMask)…')
-  const tx = await agent.mintFounder(
-    ownerAddress,
-    encryptedURI,
-    metadataH,
-    blobH,
-    keyCommitmentH,
-    lineageH,
-  )
+  let tx: ContractTransactionResponse
+  try {
+    tx = await agent.mintFounder(
+      ownerAddress,
+      encryptedURI,
+      metadataH,
+      blobH,
+      keyCommitmentH,
+      lineageH,
+      TX_OVERRIDES,
+    )
+  } catch (e) {
+    throw decorateTxError('mintFounder', e)
+  }
 
   onStatus(`Waiting for receipt of ${tx.hash.slice(0, 10)}…`)
-  const receipt = await tx.wait()
-  if (!receipt) throw new Error('mintFounder: transaction was not mined')
+  const receipt = await waitForTxWithTimeout(tx, 'mintFounder')
 
   // Parse FounderMinted event for the actual tokenId.
   let actualTokenId = predictedTokenId
-  for (const log of receipt.logs as readonly { topics: string[]; data: string }[]) {
+  for (const log of receipt.logs as readonly { topics: readonly string[]; data: string }[]) {
     try {
       const parsed = agent.interface.parseLog({
         topics: [...log.topics],

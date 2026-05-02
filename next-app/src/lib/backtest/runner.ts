@@ -1,5 +1,5 @@
 import type { Genome } from '../genome'
-import type { Bar } from './data'
+import { BARS_PER_HOUR, type Bar } from './data'
 import {
   checkFilter,
   computeTriggerSignal,
@@ -14,7 +14,10 @@ const STARTING_CAPITAL = 10_000
 const POSITION_PCT = 0.20 // 20% of cash sized into each long entry
 const TX_COST_BPS = 5
 const TX_COST = TX_COST_BPS / 10_000 // 0.0005 == 5bps round-trip-side cost
-const WARMUP_BARS = 48 // skip first 2 days so 24h lookbacks have room
+// Skip the first 48 hours so any 24h lookback / window has 2× headroom.
+// Bar count scales with the interval (e.g. 576 bars at 5m, 48 at 1h).
+const WARMUP_HOURS = 48
+const WARMUP_BARS = Math.round(WARMUP_HOURS * BARS_PER_HOUR)
 
 // =====================================================================
 //                              Types

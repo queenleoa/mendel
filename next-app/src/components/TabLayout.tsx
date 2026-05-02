@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAccount } from 'wagmi'
 import ConnectWallet from './tabs/ConnectWallet'
 import UniverseParameters, {
@@ -14,7 +14,7 @@ import Breed from './tabs/Breed'
 import Backtest from './tabs/Backtest'
 import Trade from './tabs/Trade'
 import About from './About'
-import type { ChildResult } from '../lib/inft'
+import type { BreedFlowResult } from '../lib/inft'
 import '../styles/TabLayout.css'
 
 type TabType =
@@ -27,6 +27,8 @@ type TabType =
   | 'trade'
 type View = 'main' | 'about'
 
+const BREED_RESULT_STORAGE_KEY = 'mendel.breedResult'
+
 export default function TabLayout() {
   const { isConnected } = useAccount()
   const [view, setView] = useState<View>('main')
@@ -34,9 +36,40 @@ export default function TabLayout() {
   const [universeParams, setUniverseParams] = useState<UniverseParams>(
     defaultUniverseParams,
   )
-  // Lifted from BreedingFlow so the Backtest tab can score the same 9
-  // children that were just minted, without re-fetching from chain.
-  const [childResults, setChildResults] = useState<ChildResult[] | null>(null)
+  // The full breed result (parents, seed, tx hashes, all 9 children) is
+  // lifted out of BreedingFlow so (a) the Backtest tab can score the same
+  // children without re-fetching from chain and (b) a page reload doesn't
+  // wipe the family tree on the Breed tab. Persisted to localStorage.
+  const [breedResult, setBreedResultState] = useState<BreedFlowResult | null>(
+    null,
+  )
+
+  // Hydrate from localStorage once on mount (client-only — guarded against
+  // SSR + private-mode quota exceptions).
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(BREED_RESULT_STORAGE_KEY)
+      if (raw) setBreedResultState(JSON.parse(raw) as BreedFlowResult)
+    } catch {
+      // bad JSON / disabled storage — start with no cached breed
+    }
+  }, [])
+
+  const setBreedResult = useCallback((result: BreedFlowResult | null) => {
+    setBreedResultState(result)
+    try {
+      if (result) {
+        window.localStorage.setItem(
+          BREED_RESULT_STORAGE_KEY,
+          JSON.stringify(result),
+        )
+      } else {
+        window.localStorage.removeItem(BREED_RESULT_STORAGE_KEY)
+      }
+    } catch {
+      // quota / disabled — persistence is best-effort
+    }
+  }, [])
 
   const universeComplete = useMemo(
     () => isUniverseComplete(universeParams),
@@ -95,11 +128,15 @@ export default function TabLayout() {
       <div hidden={activeTab !== 'breed'} className="tab-pane">
         <Breed
           onContinue={() => setActiveTab('backtest')}
-          onChildrenReady={setChildResults}
+          onBreedComplete={setBreedResult}
+          initialResult={breedResult}
         />
       </div>
       <div hidden={activeTab !== 'backtest'} className="tab-pane">
-        <Backtest childResults={childResults} />
+        <Backtest
+          childResults={breedResult?.children ?? null}
+          onClear={() => setBreedResult(null)}
+        />
       </div>
       <div hidden={activeTab !== 'trade'} className="tab-pane">
         <Trade />

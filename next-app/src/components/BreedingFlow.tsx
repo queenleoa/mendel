@@ -8,6 +8,7 @@ import {
   getMendelAgentAddress,
   getMendelBreederAddress,
   verifyChildDecryption,
+  type BreedFlowResult,
   type ChildResult,
 } from '../lib/inft'
 import type { BreedFlowEvent } from '../lib/inft'
@@ -36,10 +37,29 @@ const EMPTY_SLOTS: ChildSlot[] = Array.from({ length: 9 }, (_, i) => ({
 
 type BreedingFlowProps = {
   onContinue?: () => void
-  onChildrenReady?: (children: ChildResult[]) => void
+  onBreedComplete?: (result: BreedFlowResult) => void
+  initialResult?: BreedFlowResult | null
 }
 
-export default function BreedingFlow({ onContinue, onChildrenReady }: BreedingFlowProps) {
+// Helper: rebuild ChildSlot[] from a persisted BreedFlowResult so the
+// family tree can render the previously-bred 9 children after a reload.
+function slotsFromResult(result: BreedFlowResult): ChildSlot[] {
+  return result.children.map((c, i) => ({
+    index: i,
+    genome: c.genome,
+    predictedTokenId: c.predictedTokenId,
+    tokenId: c.tokenId,
+    rootHash: c.rootHash,
+    uploadTxHash: c.uploadTxHash,
+    status: 'minted' as const,
+  }))
+}
+
+export default function BreedingFlow({
+  onContinue,
+  onBreedComplete,
+  initialResult,
+}: BreedingFlowProps) {
   const { isConnected } = useAccount()
   const { data: walletClient } = useWalletClient()
   const [parentA, setParentA] = useState<number>(1)
@@ -55,6 +75,35 @@ export default function BreedingFlow({ onContinue, onChildrenReady }: BreedingFl
   const [fulfillTxHash, setFulfillTxHash] = useState<string>('')
   const [childSlots, setChildSlots] = useState<ChildSlot[]>(EMPTY_SLOTS)
   const [childResults, setChildResults] = useState<ChildResult[] | null>(null)
+
+  // Hydrate the family tree from a persisted breed (or reset it when the
+  // parent clears the cache). Runs whenever the prop changes — including
+  // the once-per-mount transition from null → loaded by TabLayout's
+  // localStorage hydrate effect.
+  useEffect(() => {
+    if (initialResult) {
+      setParentA(initialResult.parentATokenId)
+      setParentB(initialResult.parentBTokenId)
+      setParentAGenome(initialResult.parentAGenome)
+      setParentBGenome(initialResult.parentBGenome)
+      setRequestId(initialResult.requestId)
+      setSeed(initialResult.seed)
+      setRequestTxHash(initialResult.requestTxHash)
+      setFulfillTxHash(initialResult.fulfillTxHash)
+      setChildSlots(slotsFromResult(initialResult))
+      setChildResults(initialResult.children)
+    } else {
+      setParentAGenome(null)
+      setParentBGenome(null)
+      setRequestId(null)
+      setSeed('')
+      setRequestTxHash('')
+      setFulfillTxHash('')
+      setChildSlots(EMPTY_SLOTS)
+      setChildResults(null)
+      // Leave parentA/parentB inputs alone — those are user-typed values.
+    }
+  }, [initialResult])
 
   const agentAddress = getMendelAgentAddress()
   const breederAddress = getMendelBreederAddress()
@@ -172,7 +221,7 @@ export default function BreedingFlow({ onContinue, onChildrenReady }: BreedingFl
       const signer = await walletClientToSigner(walletClient)
       const r = await breedFlow(parentA, parentB, signer, handleEvent)
       setChildResults(r.children)
-      onChildrenReady?.(r.children)
+      onBreedComplete?.(r)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

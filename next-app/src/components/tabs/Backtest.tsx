@@ -16,6 +16,7 @@ const REVEAL_DELAY_MS: number = 220
 
 type Props = {
   childResults: ChildResult[] | null
+  onClear?: () => void
 }
 
 type RankedRow = ScoredGenome & {
@@ -23,7 +24,7 @@ type RankedRow = ScoredGenome & {
   childTokenId: number
 }
 
-export default function Backtest({ childResults }: Props) {
+export default function Backtest({ childResults, onClear }: Props) {
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string>('')
@@ -99,13 +100,31 @@ export default function Backtest({ childResults }: Props) {
             <p className="eyebrow">Step 6 · Backtest</p>
             <h1 className="title">Score the F2 Children</h1>
             <p className="subtitle">
-              Each newly-bred child is replayed against 30 days of hourly
-              ETH/USDT data using its expressed (dominant) trigger and filter
-              alleles. 20% sizing per entry, 5 bps round-trip cost,
-              long-only paper trades. The top performers are flagged as
-              ready-to-deploy candidates.
+              Each newly-bred child is replayed against 7 days of 5-minute
+              ETH/USDT bars using its expressed (dominant) trigger and filter
+              alleles. 20% sizing per entry, 5 bps round-trip cost, long-only
+              paper trades. The top performers are flagged as ready-to-deploy
+              candidates.
             </p>
           </div>
+          {childCount > 0 && onClear && (
+            <button
+              className="btn btn-ghost bt-clear-cache"
+              type="button"
+              onClick={() => {
+                if (
+                  confirm(
+                    'Clear cached F2 children? You\'ll need to re-breed to score them again.',
+                  )
+                ) {
+                  onClear()
+                }
+              }}
+              title="Wipe the persisted children from this browser"
+            >
+              Clear cache
+            </button>
+          )}
         </header>
 
         {childCount === 0 && (

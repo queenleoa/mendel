@@ -69,12 +69,12 @@ type CellState = { geneId: string; params: Record<string, string> } | null
 
 const GENE_PARAMS: Record<string, ParamField[]> = {
   momentum: [
-    { key: 'lookback', label: 'Lookback', defaultValue: '24', suffix: 'h' },
-    { key: 'threshold', label: 'Threshold', prefix: '±', defaultValue: '2', suffix: '%' },
+    { key: 'lookback', label: 'Lookback', defaultValue: '4', suffix: 'h' },
+    { key: 'threshold', label: 'Threshold', prefix: '±', defaultValue: '0.5', suffix: '%' },
   ],
   'mean-reversion': [
-    { key: 'window', label: 'Window', defaultValue: '24', suffix: 'h' },
-    { key: 'threshold', label: 'Threshold', prefix: '±', defaultValue: '1', suffix: 'σ' },
+    { key: 'window', label: 'Window', defaultValue: '4', suffix: 'h' },
+    { key: 'threshold', label: 'Threshold', prefix: '±', defaultValue: '0.7', suffix: 'σ' },
   ],
   'volatility-band': [
     { key: 'low', label: 'Low', defaultValue: '0.7', highlightOnChange: true },

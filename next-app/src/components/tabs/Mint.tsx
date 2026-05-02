@@ -32,12 +32,16 @@ type FounderId = 'F1' | 'F2'
 
 const NOW = new Date().toISOString()
 
+// 4-hour intraday timescales — calibrated for the 5-min Universe-tab
+// timeframe so signals fire often enough to populate a meaningful
+// backtest leaderboard. Older 24h-scale defaults produced ~2 trades per
+// child over a flat week.
 const F1_GENOME: Genome = {
   trigger: {
     locusId: 'I',
     alleles: [
-      { type: 'momentum', lookback: 24, threshold: 0.02 },
-      { type: 'momentum', lookback: 24, threshold: 0.02 },
+      { type: 'momentum', lookback: 4, threshold: 0.005 },
+      { type: 'momentum', lookback: 4, threshold: 0.005 },
     ],
     dominance: 'momentum',
   },
@@ -58,8 +62,8 @@ const F2_GENOME: Genome = {
   trigger: {
     locusId: 'I',
     alleles: [
-      { type: 'reversion', window: 24, zThreshold: 1.0 },
-      { type: 'reversion', window: 24, zThreshold: 1.0 },
+      { type: 'reversion', window: 4, zThreshold: 0.7 },
+      { type: 'reversion', window: 4, zThreshold: 0.7 },
     ],
     dominance: 'reversion',
   },
