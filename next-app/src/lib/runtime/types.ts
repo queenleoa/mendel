@@ -32,6 +32,7 @@ export type MarketSnapshot = {
   fearGreedClassification: string       // 'Fear', 'Greed', etc.
   fundingRateBps?: number               // perp funding (basis points / 8h)
   volatility24hBps: number              // realized 24h vol in basis points
+  recentCloses?: number[]               // last 12 × 5-min closes (oldest → newest), trend context for the LLM
   fetchedAt: string                     // ISO timestamp
 }
 

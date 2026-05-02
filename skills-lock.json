@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "swap-integration": {
+      "source": "Uniswap/uniswap-ai",
+      "sourceType": "github",
+      "skillPath": "packages/plugins/uniswap-trading/skills/swap-integration/SKILL.md",
+      "computedHash": "093f10ec4ac9b71cfd5716c3a95a85323be6d594334bd35d714b592e3d1d51ba"
+    },
+    "swap-planner": {
+      "source": "Uniswap/uniswap-ai",
+      "sourceType": "github",
+      "skillPath": "packages/plugins/uniswap-driver/skills/swap-planner/SKILL.md",
+      "computedHash": "976029b4d6ffd2406ba2187e9401017535f88ab444d97e52f1f5b001d8d93b23"
+    },
+    "v4-sdk-integration": {
+      "source": "Uniswap/uniswap-ai",
+      "sourceType": "github",
+      "skillPath": "packages/plugins/uniswap-trading/skills/v4-sdk-integration/SKILL.md",
+      "computedHash": "f5a88201d61587d0d7915e9c1e10761c4a9feed10034009bce60841962c2e9a4"
+    },
+    "viem-integration": {
+      "source": "Uniswap/uniswap-ai",
+      "sourceType": "github",
+      "skillPath": "packages/plugins/uniswap-viem/skills/viem-integration/SKILL.md",
+      "computedHash": "d4ed32df4663a883755039b76f64a85a9a1e4aab0e827ab477ae566c556b4bb6"
+    }
+  }
+}

@@ -53,10 +53,17 @@ export async function fetchMarketSnapshot(
   }
   const fngP = fetchJson<Fng>(`${FNG}?limit=1`).catch(() => null)
 
-  const [spot, funding, fng] = await Promise.all([
+  // Last 12 × 5-min closes — short trend context for the LLM gatekeeper.
+  // Each row is [openTime, open, high, low, close, volume, …] from Binance.
+  const klinesP = fetchJson<unknown[][]>(
+    `${BINANCE}/api/v3/klines?symbol=${symbols.spot}&interval=5m&limit=12`,
+  ).catch(() => null)
+
+  const [spot, funding, fng, klines] = await Promise.all([
     spotTickerP,
     fundingP,
     fngP,
+    klinesP,
   ])
 
   const last = Number(spot.lastPrice)
@@ -76,6 +83,10 @@ export async function fetchMarketSnapshot(
   const fearGreed = fearGreedItem ? Number(fearGreedItem.value) : 50
   const fearGreedClassification = fearGreedItem?.value_classification ?? 'Neutral'
 
+  const recentCloses = Array.isArray(klines)
+    ? klines.map((row) => parseFloat(row[4] as string)).filter((n) => Number.isFinite(n))
+    : undefined
+
   return {
     asset,
     spot: last,
@@ -84,6 +95,7 @@ export async function fetchMarketSnapshot(
     fearGreedClassification,
     fundingRateBps,
     volatility24hBps,
+    recentCloses,
     fetchedAt: new Date().toISOString(),
   }
 }

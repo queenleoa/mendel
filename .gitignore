@@ -4,8 +4,12 @@
 !.env.example
 !.env.sample
 
-# 0G agent skills — vendored reference, not part of the project source
+# Agent skill registries — vendored reference, not part of the project source.
+# .0g-skills/ holds 0G stack skills; .agents/ holds Uniswap-AI skills installed
+# via `npx skills add Uniswap/uniswap-ai`. The skills-lock.json IS committed so
+# a reinstall produces the same versions.
 .0g-skills/
+.agents/
 
 # OS / editor cruft
 .DS_Store

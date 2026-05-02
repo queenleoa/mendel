@@ -6,61 +6,8 @@ import {
 } from './db'
 import { fetchMarketSnapshot } from './market'
 import { evaluateStrategy } from './strategy'
+import { llmGatekeeper } from './llm'
 import type { Cycle, MarketSnapshot } from './types'
-
-// =====================================================================
-//                          LLM gatekeeper (stub)
-// =====================================================================
-//
-//  Phase 2 will replace this with a real 0G Compute call against the
-//  chatbot broker (`@0glabs/0g-serving-broker`), prompting in JSON-mode
-//  and parsing the response. For Phase 1 we deterministically accept
-//  trades unless the market is in an extreme fear/greed regime that the
-//  signal disagrees with — gives us a real-looking decision trail
-//  without the LLM round-trip latency / cost.
-
-type GateResult = {
-  decision: 'accept' | 'reject'
-  reason: string
-  provider: string
-  chatId: string | null
-}
-
-function stubGatekeeper(
-  signal: 'buy' | 'sell' | 'hold',
-  market: MarketSnapshot,
-): GateResult {
-  if (signal === 'hold') {
-    return {
-      decision: 'reject',
-      reason: 'no actionable signal',
-      provider: 'stub-v1',
-      chatId: null,
-    }
-  }
-  if (signal === 'buy' && market.fearGreed > 80) {
-    return {
-      decision: 'reject',
-      reason: `extreme greed (${market.fearGreed}) — late-cycle buy risk`,
-      provider: 'stub-v1',
-      chatId: null,
-    }
-  }
-  if (signal === 'sell' && market.fearGreed < 20) {
-    return {
-      decision: 'reject',
-      reason: `extreme fear (${market.fearGreed}) — sell into capitulation rejected`,
-      provider: 'stub-v1',
-      chatId: null,
-    }
-  }
-  return {
-    decision: 'accept',
-    reason: `regime ok (FNG=${market.fearGreed}, vol=${market.volatility24hBps}bps)`,
-    provider: 'stub-v1',
-    chatId: null,
-  }
-}
 
 // =====================================================================
 //                          Trade execution (stub)
@@ -151,7 +98,12 @@ export async function runCycle(tokenId: number): Promise<Cycle> {
   const cycleNo = await getNextCycleNo(tokenId)
   const market = await fetchMarketSnapshot(agent.lineage.asset)
   const alpha = evaluateStrategy(agent.genome, market, agent.position)
-  const gate = stubGatekeeper(alpha.signal, market)
+  const gate = await llmGatekeeper(
+    alpha.signal,
+    alpha.reason,
+    agent.genome,
+    market,
+  )
   const trade = stubTrade(alpha.signal, gate.decision, market, {
     position: agent.position,
     positionQty: agent.positionQty,
