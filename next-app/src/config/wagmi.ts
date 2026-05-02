@@ -1,4 +1,5 @@
 import { createConfig, http } from 'wagmi'
+import { baseSepolia } from 'wagmi/chains'
 import { defineChain } from 'viem'
 import { metaMask } from 'wagmi/connectors'
 
@@ -15,10 +16,14 @@ export const zeroGGalileo = defineChain({
   testnet: true,
 })
 
+// Re-export baseSepolia so callers don't need a second import path.
+export { baseSepolia }
+
 export const config = createConfig({
-  chains: [zeroGGalileo],
+  chains: [zeroGGalileo, baseSepolia],
   connectors: [metaMask({ dappMetadata: { name: 'Mendel' } })],
   transports: {
     [zeroGGalileo.id]: http(),
+    [baseSepolia.id]: http(),
   },
 })

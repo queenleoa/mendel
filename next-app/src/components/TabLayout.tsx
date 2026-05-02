@@ -139,7 +139,7 @@ export default function TabLayout() {
         />
       </div>
       <div hidden={activeTab !== 'trade'} className="tab-pane">
-        <Trade />
+        <Trade breedResult={breedResult} />
       </div>
     </>
   )
