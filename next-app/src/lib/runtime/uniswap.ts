@@ -1,22 +1,29 @@
-// Server-side Uniswap V3 executor on Base Sepolia.
+// Server-side Uniswap executor on Base Sepolia.
 //
-// Swaps the agent wallet's USDC ↔ WETH at a fixed trade size (default
-// $10 USDC per leg; override via TRADE_SIZE_USDC env, or fall back to
-// TRADE_SIZE_ETH for legacy ETH-fixed sizing). All swaps go through
-// SwapRouter02's `exactInputSingle` against the 0.3 % pool — the only
-// Base Sepolia ETH/USDC tier with measurable depth.
+// Two swap paths, tried in order:
 //
-// Pool prices on testnet diverge wildly from mainnet (e.g. ~$162/ETH
-// vs Binance's ~$2,300 today) because liquidity is sparse. We still
-// execute the real swap so there's an on-chain tx for proof-of-action,
-// but the cycle's PnL math runs against the Binance reference price
-// passed in by the caller — the strategy never "sees" the testnet
-// price, so its decisions and accounting stay realistic.
+//   1. Direct router  — call SwapRouter02.exactInputSingle on the
+//      0.3 % USDC/WETH pool we know has liquidity. Demo-reliable on
+//      Base Sepolia where Trading-API testnet routing is sparse.
 //
-// On any failure (no liquidity, balance shortfall, RPC blip, slippage
-// breach) we return `{ isPaper: true }` and the caller paper-trades
-// against the Binance ref. Demo-safe: a flaky pool can't break the
-// position state machine.
+//   2. Uniswap Trading API — POST /v1/quote → optional Permit2 EIP-712
+//      sign → POST /v1/swap → broadcast. Gives smart routing across
+//      V2/V3/V4 + UniswapX on mainnet; on Base Sepolia it usually 404s
+//      with "No quotes available" because the routing indexer doesn't
+//      know about the testnet pool. Kept as a fallback so the same
+//      code runs on mainnet without a rewrite.
+//
+// Sizing: $10 USDC per leg by default (override TRADE_SIZE_USDC, or
+// TRADE_SIZE_ETH for legacy ETH-fixed sizing). Pool prices on Base
+// Sepolia diverge wildly from mainnet (sparse liquidity), so PnL
+// accounting always runs against the Binance reference price the
+// caller passes in — the on-chain swap is proof-of-action, not the
+// price source.
+//
+// On any failure of *both* paths (no liquidity, balance shortfall, RPC
+// blip, slippage breach, API down) we return `{ isPaper: true }` and
+// the caller paper-trades against the Binance ref. Demo-safe: a flaky
+// pool or API can't break the position state machine.
 
 import 'server-only'
 
@@ -34,8 +41,16 @@ import {
 //                              Constants
 // =====================================================================
 
+// Direct router path
 const SWAP_ROUTER_02 = '0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4'
 const QUOTER_V2 = '0xC5290058841028F1614F3A6F0F5816cAd0df5E27'
+
+// Trading API path
+const UNISWAP_API_BASE = 'https://trade-api.gateway.uniswap.org/v1'
+// Permit2 — canonical singleton, same address on every chain. The
+// Trading API spends ERC20s through it.
+const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
+
 const WETH = '0x4200000000000000000000000000000000000006'
 
 // USDC test token on Base Sepolia (Circle's official test address). The
@@ -46,6 +61,15 @@ const USDC =
   '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
 
 const POOL_FEE = Number(process.env.UNISWAP_POOL_FEE ?? 3000)
+const BASE_SEPOLIA_CHAIN_ID = 84532
+
+// 5 % slippage tolerance versus Uniswap's *own* quote — not against
+// Binance. The pool's price relative to mainnet is its own concern;
+// what we guard against is the pool moving between our quote and our
+// swap (which is the actual definition of slippage).
+const SLIPPAGE_BPS = 500
+// Trading API takes percent (0–100), not bps. Same number, different unit.
+const SLIPPAGE_PCT = 5
 
 // Trade size — preferred unit is USDC notional, since on Base Sepolia
 // the USDC test faucet is the scarce side (10 USDC per claim) while ETH
@@ -57,6 +81,9 @@ const POOL_FEE = Number(process.env.UNISWAP_POOL_FEE ?? 3000)
 const TRADE_SIZE_USDC_ENV = process.env.TRADE_SIZE_USDC
 const TRADE_SIZE_ETH_ENV = process.env.TRADE_SIZE_ETH
 const DEFAULT_TRADE_SIZE_USDC = 10
+
+const BASE_SEPOLIA_RPC =
+  process.env.BASE_SEPOLIA_RPC ?? 'https://sepolia.base.org'
 
 /**
  * Return the trade size for an `open_long` leg, expressed both as the
@@ -73,7 +100,6 @@ function getOpenLongSize(binancePrice: number): {
   if (TRADE_SIZE_USDC_ENV) {
     usdcNotional = Number(TRADE_SIZE_USDC_ENV)
   } else if (TRADE_SIZE_ETH_ENV) {
-    // Legacy ETH-fixed sizing — convert to USDC at current Binance px.
     const ethFixed = Number(TRADE_SIZE_ETH_ENV)
     usdcNotional = ethFixed * binancePrice
   } else {
@@ -85,15 +111,6 @@ function getOpenLongSize(binancePrice: number): {
     usdcAmount: parseUnits(usdcNotional.toFixed(6), 6),
   }
 }
-
-// 5 % slippage tolerance versus Uniswap's *own* quote — not against
-// Binance. The pool's price relative to mainnet is its own concern;
-// what we guard against is the pool moving between our quote and our
-// swap (which is the actual definition of slippage).
-const SLIPPAGE_BPS = 500
-
-const BASE_SEPOLIA_RPC =
-  process.env.BASE_SEPOLIA_RPC ?? 'https://sepolia.base.org'
 
 // =====================================================================
 //                              ABIs (minimal)
@@ -111,11 +128,10 @@ const ERC20_ABI = [
   'function approve(address spender, uint256 amount) returns (bool)',
   'function allowance(address owner, address spender) view returns (uint256)',
   'function balanceOf(address) view returns (uint256)',
-  'function decimals() view returns (uint8)',
 ] as const
 
 // =====================================================================
-//                          Wallet + approval cache
+//                       Wallet + approval caches
 // =====================================================================
 
 let cachedWallet: Wallet | null = null
@@ -129,29 +145,205 @@ function getWallet(): Wallet {
   return cachedWallet
 }
 
-// SwapRouter02 needs ERC20 approval for the input token before each
-// swap. We approve `MaxUint256` once per server lifetime and cache the
-// result so subsequent swaps don't re-approve. Resets on cold start.
-const approvedTokens = new Set<string>()
+// Two separate caches — the direct path approves SwapRouter02; the
+// Trading API path approves Permit2. Tracked independently so we don't
+// re-approve a spender that's already been topped up this server life.
+const approvedRouter = new Set<string>()
+const approvedPermit2 = new Set<string>()
 
-async function ensureApproval(tokenAddr: string): Promise<void> {
-  if (approvedTokens.has(tokenAddr.toLowerCase())) return
+async function ensureApproval(
+  tokenAddr: string,
+  spender: string,
+  cache: Set<string>,
+): Promise<void> {
+  if (cache.has(tokenAddr.toLowerCase())) return
   const wallet = getWallet()
   const token = new Contract(tokenAddr, ERC20_ABI, wallet)
-  const current: bigint = await token.allowance(
-    wallet.address,
-    SWAP_ROUTER_02,
-  )
-  // Only re-approve if currently below a generous threshold. Many
-  // tokens initialize allowance to 0; some return MaxUint256 when
-  // already-approved-once.
+  const current: bigint = await token.allowance(wallet.address, spender)
   if (current >= parseEther('1000000')) {
-    approvedTokens.add(tokenAddr.toLowerCase())
+    cache.add(tokenAddr.toLowerCase())
     return
   }
-  const tx = await token.approve(SWAP_ROUTER_02, MaxUint256)
+  const tx = await token.approve(spender, MaxUint256)
   await tx.wait()
-  approvedTokens.add(tokenAddr.toLowerCase())
+  cache.add(tokenAddr.toLowerCase())
+}
+
+// =====================================================================
+//                         Path 1: Direct router
+// =====================================================================
+
+type SwapResult = { txHash: string; amountOutRaw: bigint }
+
+async function directRouterSwap(
+  tokenIn: string,
+  tokenOut: string,
+  amountInRaw: bigint,
+): Promise<SwapResult> {
+  const wallet = getWallet()
+  const quoter = new Contract(QUOTER_V2, QUOTER_ABI, wallet.provider!)
+  const [quotedOut] = (await quoter.quoteExactInputSingle.staticCall({
+    tokenIn,
+    tokenOut,
+    amountIn: amountInRaw,
+    fee: POOL_FEE,
+    sqrtPriceLimitX96: 0,
+  })) as [bigint, bigint, number, bigint]
+  if (quotedOut === 0n) {
+    throw new Error('pool returned 0 — no liquidity')
+  }
+
+  await ensureApproval(tokenIn, SWAP_ROUTER_02, approvedRouter)
+  const router = new Contract(SWAP_ROUTER_02, ROUTER_ABI, wallet)
+  const minOut = (quotedOut * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n
+  const tx = await router.exactInputSingle({
+    tokenIn,
+    tokenOut,
+    fee: POOL_FEE,
+    recipient: wallet.address,
+    amountIn: amountInRaw,
+    amountOutMinimum: minOut,
+    sqrtPriceLimitX96: 0,
+  })
+  await tx.wait()
+  return { txHash: tx.hash, amountOutRaw: quotedOut }
+}
+
+// =====================================================================
+//                       Path 2: Uniswap Trading API
+// =====================================================================
+//
+// Tried as a fallback when the direct router path errors. On Base
+// Sepolia this usually 404s ("No quotes available") because the
+// Trading API's routing indexer doesn't track our testnet pool — but
+// the same code is what would carry a mainnet deploy, so it's worth
+// keeping wired up. If UNISWAP_API_KEY is unset, this path is skipped.
+
+async function tradingApiSwap(
+  tokenIn: string,
+  tokenOut: string,
+  amountInRaw: bigint,
+): Promise<SwapResult> {
+  const apiKey = process.env.UNISWAP_API_KEY
+  if (!apiKey) throw new Error('UNISWAP_API_KEY not set — Trading API path skipped')
+  const wallet = getWallet()
+
+  // ----- /quote -----
+  const quoteRes = await fetch(`${UNISWAP_API_BASE}/quote`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      type: 'EXACT_INPUT',
+      tokenIn,
+      tokenOut,
+      tokenInChainId: BASE_SEPOLIA_CHAIN_ID,
+      tokenOutChainId: BASE_SEPOLIA_CHAIN_ID,
+      amount: amountInRaw.toString(),
+      swapper: wallet.address,
+      slippageTolerance: SLIPPAGE_PCT,
+    }),
+  })
+  if (!quoteRes.ok) {
+    const text = await quoteRes.text().catch(() => '')
+    throw new Error(`quote HTTP ${quoteRes.status}: ${text.slice(0, 200)}`)
+  }
+  const quoteJson = (await quoteRes.json()) as {
+    quote?: { output?: { amount?: string } }
+    permitData?: {
+      domain: Record<string, unknown>
+      types: Record<string, unknown>
+      values: Record<string, unknown>
+    } | null
+  }
+  const { quote, permitData } = quoteJson
+  if (!quote) throw new Error('quote response missing `quote` field')
+
+  const amountOutRaw = BigInt(quote.output?.amount ?? '0')
+  if (amountOutRaw === 0n) {
+    throw new Error('quote returned 0 output — no route / no liquidity')
+  }
+
+  // ----- Permit2 signature (only when API hands us permitData) -----
+  let signature: string | undefined
+  if (permitData) {
+    await ensureApproval(tokenIn, PERMIT2_ADDRESS, approvedPermit2)
+    const types = { ...(permitData.types as Record<string, unknown>) }
+    delete (types as Record<string, unknown>).EIP712Domain
+    signature = await wallet.signTypedData(
+      permitData.domain as never,
+      types as never,
+      permitData.values as never,
+    )
+  }
+
+  // ----- /swap -----
+  const swapBody: Record<string, unknown> = { quote }
+  if (signature && permitData) {
+    swapBody.signature = signature
+    swapBody.permitData = permitData
+  }
+  const swapRes = await fetch(`${UNISWAP_API_BASE}/swap`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(swapBody),
+  })
+  if (!swapRes.ok) {
+    const text = await swapRes.text().catch(() => '')
+    throw new Error(`swap HTTP ${swapRes.status}: ${text.slice(0, 200)}`)
+  }
+  const swapJson = (await swapRes.json()) as {
+    swap?: {
+      to?: string
+      from?: string
+      data?: string
+      value?: string
+      chainId?: number
+      gasLimit?: string
+      maxFeePerGas?: string
+      maxPriorityFeePerGas?: string
+    }
+  }
+  const txReq = swapJson.swap
+  if (!txReq?.data || txReq.data === '0x') {
+    throw new Error('swap response missing calldata')
+  }
+
+  const tx = await wallet.sendTransaction(txReq as never)
+  await tx.wait()
+  return { txHash: tx.hash, amountOutRaw }
+}
+
+// =====================================================================
+//                Orchestrator: try direct, then Trading API
+// =====================================================================
+
+async function executeSwap(
+  tokenIn: string,
+  tokenOut: string,
+  amountInRaw: bigint,
+): Promise<SwapResult> {
+  try {
+    return await directRouterSwap(tokenIn, tokenOut, amountInRaw)
+  } catch (eDirect) {
+    const directMsg =
+      eDirect instanceof Error ? eDirect.message : String(eDirect)
+    try {
+      return await tradingApiSwap(tokenIn, tokenOut, amountInRaw)
+    } catch (eApi) {
+      const apiMsg = eApi instanceof Error ? eApi.message : String(eApi)
+      throw new Error(
+        `direct: ${directMsg.slice(0, 120)} | api: ${apiMsg.slice(0, 120)}`,
+      )
+    }
+  }
 }
 
 // =====================================================================
@@ -180,7 +372,7 @@ export type TradeAttempt = {
  * Open a long position by spending the configured USDC notional
  * (`TRADE_SIZE_USDC`, default $10) on WETH. The implied ETH size at
  * the Binance reference price gets recorded as the position size; the
- * actual amount of WETH the testnet pool returns may be much larger
+ * actual amount of WETH the testnet pool returns may differ wildly
  * (pool prices ETH ~$162 vs Binance ~$2,300), but the position-state
  * accounting stays in Binance terms so PnL math doesn't drift.
  */
@@ -191,10 +383,9 @@ export async function tryOpenLong(
   try {
     const wallet = getWallet()
 
-    // Pre-flight: confirm the agent has enough USDC to swap. The router
-    // calls `transferFrom(agent, router, usdcAmount)` and reverts with
-    // the opaque "STF" string when the agent's balance is short. Catch
-    // it here with a clear message instead.
+    // Pre-flight: confirm the agent has enough USDC to swap. Both swap
+    // paths would otherwise fail with opaque router/API errors; catch
+    // it here with a clear "fund the agent" hint.
     const usdcContract = new Contract(USDC, ERC20_ABI, wallet)
     const usdcBalance: bigint = await usdcContract.balanceOf(wallet.address)
     if (usdcBalance < usdcAmount) {
@@ -208,34 +399,8 @@ export async function tryOpenLong(
       )
     }
 
-    const quoter = new Contract(QUOTER_V2, QUOTER_ABI, wallet.provider!)
-    const [quotedWethOut] = (await quoter.quoteExactInputSingle.staticCall({
-      tokenIn: USDC,
-      tokenOut: WETH,
-      amountIn: usdcAmount,
-      fee: POOL_FEE,
-      sqrtPriceLimitX96: 0,
-    })) as [bigint, bigint, number, bigint]
-    if (quotedWethOut === 0n) {
-      return paperTrade('open_long', ethSize, binancePrice, 'pool returned 0 — no liquidity')
-    }
-
-    await ensureApproval(USDC)
-    const router = new Contract(SWAP_ROUTER_02, ROUTER_ABI, wallet)
-    const minOut =
-      (quotedWethOut * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n
-    const tx = await router.exactInputSingle({
-      tokenIn: USDC,
-      tokenOut: WETH,
-      fee: POOL_FEE,
-      recipient: wallet.address,
-      amountIn: usdcAmount,
-      amountOutMinimum: minOut,
-      sqrtPriceLimitX96: 0,
-    })
-    await tx.wait()
-
-    const wethOut = Number(formatUnits(quotedWethOut, 18))
+    const { txHash, amountOutRaw } = await executeSwap(USDC, WETH, usdcAmount)
+    const wethOut = Number(formatUnits(amountOutRaw, 18))
     const usdcSpent = Number(formatUnits(usdcAmount, 6))
     const uniswapPrice = wethOut > 0 ? usdcSpent / wethOut : null
 
@@ -244,7 +409,7 @@ export async function tryOpenLong(
       ethSize,
       uniswapPrice,
       binancePrice,
-      txHash: tx.hash,
+      txHash,
       isPaper: false,
     }
   } catch (e) {
@@ -292,34 +457,8 @@ export async function tryCloseLong(
       )
     }
 
-    const quoter = new Contract(QUOTER_V2, QUOTER_ABI, wallet.provider!)
-    const [quotedUsdcOut] = (await quoter.quoteExactInputSingle.staticCall({
-      tokenIn: WETH,
-      tokenOut: USDC,
-      amountIn: wethAmount,
-      fee: POOL_FEE,
-      sqrtPriceLimitX96: 0,
-    })) as [bigint, bigint, number, bigint]
-    if (quotedUsdcOut === 0n) {
-      return paperTrade('close_long', positionEth, binancePrice, 'pool returned 0 — no liquidity')
-    }
-
-    await ensureApproval(WETH)
-    const router = new Contract(SWAP_ROUTER_02, ROUTER_ABI, wallet)
-    const minOut =
-      (quotedUsdcOut * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n
-    const tx = await router.exactInputSingle({
-      tokenIn: WETH,
-      tokenOut: USDC,
-      fee: POOL_FEE,
-      recipient: wallet.address,
-      amountIn: wethAmount,
-      amountOutMinimum: minOut,
-      sqrtPriceLimitX96: 0,
-    })
-    await tx.wait()
-
-    const usdcOut = Number(formatUnits(quotedUsdcOut, 6))
+    const { txHash, amountOutRaw } = await executeSwap(WETH, USDC, wethAmount)
+    const usdcOut = Number(formatUnits(amountOutRaw, 6))
     const uniswapPrice = positionEth > 0 ? usdcOut / positionEth : null
 
     return {
@@ -327,7 +466,7 @@ export async function tryCloseLong(
       ethSize: positionEth,
       uniswapPrice,
       binancePrice,
-      txHash: tx.hash,
+      txHash,
       isPaper: false,
     }
   } catch (e) {

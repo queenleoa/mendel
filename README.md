@@ -1,7 +1,7 @@
 # Mendel
-
+-----
 ▸ The Problem
-
+-----
 Two brains can reason and learn from each other, or reach a consensus on decisions together, but it's difficult to combine two brains to create a new and improved brain. But what you can do is create a new offspring by recombining DNA that belongs to the two brains.
 
 The same analogy can be used for AI trading agents. You can't meaningfully recombine ML model weights either — half of one trained network plus half of another is just noise. This causes two problems:
@@ -12,7 +12,7 @@ The same analogy can be used for AI trading agents. You can't meaningfully recom
 
 -----
 ▸ Our Solution
-
+-----
 ✅ Mendel is a no-code AI quant-bot builder where the best strategies breed and evolve like DNA over multiple generations for DeFi-native, non-stationary alpha optimisation.
 
 ✅ Mendel is like a little lab that offers an intuitive visual interface to drag-and-drop strategy blocks, backtest, forward test and mint agents.
@@ -23,7 +23,7 @@ The same analogy can be used for AI trading agents. You can't meaningfully recom
 
 -----
 ▸ Setup
-
+-----
 ```bash
 cd next-app
 cp .env.local.example .env.local
@@ -37,7 +37,7 @@ npm run dev
 | `DATABASE_URL` | Neon Postgres connection string. Schema applied via `npm run db:setup`. |
 | `AGENT_PRIVATE_KEY` | Hot-wallet private key used server-side to sign autonomous compute calls (0G Galileo) and Uniswap V3 swaps (Base Sepolia). |
 | `AGENT_ADDRESS` | Public address of the hot wallet above. Surfaced to the UI so users can top up the agent runtime from MetaMask. |
-| `UNISWAP_API_KEY` | Uniswap Trading API key for routed swap execution on Base Sepolia. |
+| `UNISWAP_API_KEY` _(optional)_ | Uniswap Trading API key. The cycle hits the V3 router directly first (demo-reliable on Base Sepolia); the API path is tried as a fallback (`/v1/quote` → Permit2 sign → `/v1/swap`) and is the default smart-routing path on mainnet. |
 
 -----
 ▸ Important Mechanisms:
@@ -73,21 +73,21 @@ We use iNFTs to give identity to agentic strategies. This proof-of-concept bring
 
 Proof-of-storage, proof-of-compute, and embedded intelligence hashes are used on-chain to confirm that correct recombinations of agent alpha are taking place without revealing original strategies, and that agents are scored fairly and transparently for their performance.
 
-In the demo, we cross-breed strategies using a breeder contract on 0G and deploy live autonomous agents that utilise the Uniswap API to carry out live trades (ETH/USDC on Base Sepolia) — the signal acts as the trigger, and the LLM reasons on whether to proceed with the trade or not based on other market inputs supplied to it. All logs are stored in 0g storage. All decryption takes place only on the user's frontend, so the strategy is hidden from storage providers too.
+In the demo, we cross-breed strategies using a breeder contract on 0G and deploy live autonomous agents that swap on Uniswap V3 (direct router on Base Sepolia, with the Uniswap Trading API as a fallback for smart routing on mainnet) to carry out live ETH/USDC trades — the signal acts as the trigger, and the LLM reasons on whether to proceed with the trade or not based on other market inputs supplied to it. All logs are stored in 0g storage. All decryption takes place only on the user's frontend, so the strategy is hidden from storage providers too.
 
 -----
 ▸ **Deployments**
-
+-----
 | | Address / Link |
 |---|---|
-| **MendelAgent** (0G Galileo) | _paste once deployed_ |
+| **MendelAgent** (0G Galileo) | [`0x98402b35460612A04a50463d1FC220E604B91f2a`](https://chainscan-galileo.0g.ai/address/0x98402b35460612A04a50463d1FC220E604B91f2a) |
 | **MendelBreeder** (0G Galileo) | _paste once deployed_ |
 | **Agent runtime hot wallet** | `0xE22874bD023b98Ce9c77df0E2988020b16E299f6` |
-| **Sample autonomous Uniswap swap** (Base Sepolia, via Uniswap API) | _BaseScan link once a live agent has fired_ |
+| **Sample autonomous Uniswap V3 swap** (Base Sepolia) | [`0xb14643cc…cce89919`](https://sepolia.basescan.org/tx/0xb14643cc88fe70296a142e0ed25bbc4c0c5b952c1eac1483c305a709cce89919) |
 
 -----
 ▸ **Full flow**
-
+-----
 **Mint** — strategy genome is built in the browser from the user's drag-dropped alpha cells, encrypted client-side under a wallet-signature-derived AES-256-GCM key, the ciphertext is uploaded to 0G Storage, and the resulting `rootHash` is committed on-chain inside a `MendelAgent.mintFounder` call along with hash commitments. Plaintext never leaves the browser.
 
 ![Mint flow](https://raw.githubusercontent.com/queenleoa/mendel/0ca387a497eb2c20e632e27c3f2ac7bcfffdf94d/mendel_mint_flow.svg)
@@ -96,7 +96,7 @@ In the demo, we cross-breed strategies using a breeder contract on 0G and deploy
 
 ![Breed flow](https://raw.githubusercontent.com/queenleoa/mendel/0ca387a497eb2c20e632e27c3f2ac7bcfffdf94d/mendel_breed_flow.svg)
 
-**Live cycle** — every active agent ticks on the Vercel cron (`*/5`). The server pulls live market context, runs the strategy module, asks the LLM gatekeeper on 0G Compute whether to proceed, executes the swap via the Uniswap Trading API on Base Sepolia, persists the cycle to Postgres, and a separate cron (`*/10`) bundles unposted cycles into a JSON document and pushes it to 0G Storage so every agent decision is auditable.
+**Live cycle** — every active agent ticks on the Vercel cron (`*/5`). The server pulls live market context, runs the strategy module, asks the LLM gatekeeper on 0G Compute whether to proceed, executes the swap on Uniswap V3 on Base Sepolia (direct router, falling back to the Uniswap Trading API), persists the cycle to Postgres, and a separate cron (`*/10`) bundles unposted cycles into a JSON document and pushes it to 0G Storage so every agent decision is auditable.
 
 ![Live cycle](https://raw.githubusercontent.com/queenleoa/mendel/0ca387a497eb2c20e632e27c3f2ac7bcfffdf94d/mendel_live_cycle.svg)
 
@@ -115,7 +115,7 @@ The LLM returns a one-line JSON `{decision, reason}`. Decision is `accept`, `rej
 
 -----
 ▸ Folder structure
-
+-----
 ```
 mendel/
 ├── contracts/         # Foundry — MendelAgent (iNFT) + MendelBreeder (recombination + EIP-712 fulfilment)
@@ -135,6 +135,6 @@ mendel/
 
 -----
 ▸ Contact
-
+-----
 - **X**: [@buildwithadrija](https://x.com/buildwithadrija)
 - **Telegram**: [@buildwithadrija](https://t.me/buildwithadrija)
