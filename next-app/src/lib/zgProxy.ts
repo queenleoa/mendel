@@ -5,14 +5,18 @@
 // production, browsers refuse to fetch those URLs (mixed-content). To
 // fix that without monkey-patching the SDK, we install a global fetch
 // shim here: any HTTP request to an IP:port endpoint gets rewritten to
-// `<agent-runtime>/api/proxy/zg/<ip>:<port>/...`.
+// `<prefix>/api/proxy/zg/<ip>:<port>/...`.
 //
-// In dev (Next on http://localhost:5173) the page itself is HTTP, so
-// mixed-content doesn't apply and this shim is a no-op — we still
-// rewrite for consistency, but local dev running against a deployed
-// agent-runtime will route through HTTPS too.
+// Frontend + agent-runtime ship in the same Next deploy, so the proxy
+// is same-origin by default — `prefix` is empty and the proxied URL is
+// a relative `/api/proxy/zg/...`, which the browser resolves against
+// the current page (HTTPS in prod, HTTP on localhost — both work).
+//
+// `NEXT_PUBLIC_AGENT_RUNTIME_URL` is only needed when the frontend and
+// runtime are deployed to *different* origins; setting it pins all
+// rewrites to that absolute URL.
 
-const runtimeUrl = (
+const runtimePrefix = (
   process.env.NEXT_PUBLIC_AGENT_RUNTIME_URL ?? ''
 ).replace(/\/$/, '')
 
@@ -24,14 +28,12 @@ let installed = false
 export function installZgProxyFetch(): void {
   if (installed) return
   if (typeof window === 'undefined') return
-  if (!runtimeUrl) {
-    console.info(
-      '[mendel/zgProxy] no NEXT_PUBLIC_AGENT_RUNTIME_URL — proxy disabled, direct HTTP fetches will be used (works on localhost, blocked on HTTPS)',
-    )
-    return
-  }
   installed = true
-  console.info(`[mendel/zgProxy] proxy installed → ${runtimeUrl}/api/proxy/zg/…`)
+  console.info(
+    runtimePrefix
+      ? `[mendel/zgProxy] proxy installed → ${runtimePrefix}/api/proxy/zg/…`
+      : '[mendel/zgProxy] proxy installed → /api/proxy/zg/… (same-origin)',
+  )
 
   const original = window.fetch.bind(window)
 
@@ -55,7 +57,7 @@ export function installZgProxyFetch(): void {
         '',
       )
       const queryPart = qIdx >= 0 ? tail.slice(qIdx) : ''
-      const proxied = `${runtimeUrl}/api/proxy/zg/${pathPart}${queryPart}`
+      const proxied = `${runtimePrefix}/api/proxy/zg/${pathPart}${queryPart}`
       // Re-build the request: if `input` was a Request object, copy its
       // body/method/headers; otherwise just forward `init`.
       if (typeof input === 'string' || input instanceof URL) {
