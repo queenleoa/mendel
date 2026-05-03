@@ -53,10 +53,13 @@ export async function fetchMarketSnapshot(
   }
   const fngP = fetchJson<Fng>(`${FNG}?limit=1`).catch(() => null)
 
-  // Last 12 × 5-min closes — short trend context for the LLM gatekeeper.
-  // Each row is [openTime, open, high, low, close, volume, …] from Binance.
+  // Last 100 × 5-min closes (~8.3 h) — enough history for the strategy
+  // module to compute lookback-based pct-changes and rolling z-scores
+  // for window sizes up to ~6 h. The LLM gatekeeper still only reads
+  // the most recent 12 of these for trend context. Each Binance row is
+  // [openTime, open, high, low, close, volume, …].
   const klinesP = fetchJson<unknown[][]>(
-    `${BINANCE}/api/v3/klines?symbol=${symbols.spot}&interval=5m&limit=12`,
+    `${BINANCE}/api/v3/klines?symbol=${symbols.spot}&interval=5m&limit=100`,
   ).catch(() => null)
 
   const [spot, funding, fng, klines] = await Promise.all([

@@ -26,6 +26,7 @@ type Props = {
   value: UniverseParams
   onChange: (next: UniverseParams) => void
   onContinue: () => void
+  computing?: boolean
 }
 
 const VENUES = [
@@ -48,7 +49,12 @@ const TIMEFRAMES = [
   { value: '1d', label: '1 day' },
 ]
 
-export default function UniverseParameters({ value, onChange, onContinue }: Props) {
+export default function UniverseParameters({
+  value,
+  onChange,
+  onContinue,
+  computing = false,
+}: Props) {
   const update = <K extends keyof UniverseParams>(key: K, v: UniverseParams[K]) =>
     onChange({ ...value, [key]: v })
 
@@ -144,14 +150,20 @@ export default function UniverseParameters({ value, onChange, onContinue }: Prop
             <button
               className="btn btn-primary"
               type="submit"
-              disabled={!complete}
+              disabled={!complete || computing}
               title={complete ? undefined : 'Fill all fields to continue'}
             >
-              Continue
+              {computing ? 'Tuning to live market…' : 'Continue'}
             </button>
-            {!complete && (
+            {!complete && !computing && (
               <p className="form-hint">
                 Complete all fields to unlock the next steps.
+              </p>
+            )}
+            {computing && (
+              <p className="form-hint">
+                Pulling current ETH market data and computing default
+                trigger / filter values that will fire in this regime…
               </p>
             )}
           </div>

@@ -30,7 +30,10 @@ const ZERO_G_RPC =
 const TX_GAS_PRICE = 50_000_000_000
 
 export type GateResult = {
-  decision: 'accept' | 'reject'
+  // 'accept' / 'reject' come from the LLM's decision.
+  // 'skip' is set when alpha emitted `hold` and we never asked the LLM —
+  //   different from `reject`, which means we asked and were told no.
+  decision: 'accept' | 'reject' | 'skip'
   reason: string
   provider: string
   chatId: string | null
@@ -46,9 +49,9 @@ function stubGate(
 ): GateResult {
   if (signal === 'hold') {
     return {
-      decision: 'reject',
-      reason: 'no actionable signal',
-      provider: 'stub-v1',
+      decision: 'skip',
+      reason: 'alpha quiet — no trade to gate',
+      provider: 'shortcircuit',
       chatId: null,
     }
   }
@@ -99,12 +102,15 @@ function summarizeGenome(genome: Genome): string {
 
 function trendDescription(closes: number[] | undefined): string {
   if (!closes || closes.length < 2) return 'recent trend: unavailable'
-  const first = closes[0]
-  const last = closes[closes.length - 1]
+  // The strategy reads the full 100-bar series for lookback math; for
+  // the LLM prompt we only need the last 12 (~1 hour) of trend context.
+  const recent = closes.slice(-12)
+  const first = recent[0]
+  const last = recent[recent.length - 1]
   const pct = ((last - first) / first) * 100
   const arrow = pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : 'flat'
-  const series = closes.map((c) => c.toFixed(2)).join(', ')
-  return `last ${closes.length} × 5-min closes (${arrow} ${pct.toFixed(2)}%): [${series}]`
+  const series = recent.map((c) => c.toFixed(2)).join(', ')
+  return `last ${recent.length} × 5-min closes (${arrow} ${pct.toFixed(2)}%): [${series}]`
 }
 
 function buildPrompt(
@@ -127,8 +133,8 @@ Market context:
   - ${trendDescription(market.recentCloses)}
 
 Decide: should this trade execute, or be rejected as a regime mismatch?
-Respond with ONLY a single line of valid JSON, no prose, no markdown:
-{"decision":"accept" or "reject","reason":"<one sentence, ≤140 chars>"}`
+Respond with ONLY two lines of valid JSON, no prose, no markdown:
+{"decision":"accept" or "reject","reason":"<two lines, ≤240 chars>"}`
 }
 
 function parseGateResponse(text: string): {
@@ -153,7 +159,9 @@ function parseGateResponse(text: string): {
       if (parsed.decision === 'accept' || parsed.decision === 'reject') {
         return {
           decision: parsed.decision,
-          reason: (parsed.reason ?? '').slice(0, 200) || 'no reason given',
+          // Allow a little headroom over the 240-char prompt cap so the
+          // model isn't punished for slightly running over.
+          reason: (parsed.reason ?? '').slice(0, 280) || 'no reason given',
         }
       }
     } catch {
@@ -302,8 +310,8 @@ export async function llmGatekeeper(
   if (signal === 'hold') {
     // Don't burn an LLM call when the alpha already said hold.
     return {
-      decision: 'reject',
-      reason: 'no actionable signal',
+      decision: 'skip',
+      reason: 'alpha quiet — no trade to gate',
       provider: 'shortcircuit',
       chatId: null,
     }

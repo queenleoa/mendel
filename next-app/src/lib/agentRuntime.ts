@@ -20,6 +20,10 @@ export type RuntimeAgent = {
   tokenId: number
   ownerAddress: string
   status: 'active' | 'paused' | 'killed'
+  // Server returns the decrypted genome + lineage on every agent payload;
+  // the Trade tab uses `genome` to render the chromosome viz on the slot.
+  genome: Genome
+  lineage: RuntimeLineage
   position: 'flat' | 'long'
   positionQty: number
   positionOpenPrice: number | null
@@ -95,6 +99,19 @@ export async function tickAgent(tokenId: number): Promise<{ cycle: RuntimeCycle 
   return asJson(
     await fetch(`${BASE}/api/agents/${tokenId}/tick`, {
       method: 'POST',
+    }),
+  )
+}
+
+export async function setAgentRuntimeStatus(
+  tokenId: number,
+  status: 'active' | 'paused' | 'killed',
+): Promise<{ ok: true }> {
+  return asJson(
+    await fetch(`${BASE}/api/agents/${tokenId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
     }),
   )
 }

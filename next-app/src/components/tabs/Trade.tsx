@@ -24,12 +24,15 @@ import {
   activateAgent,
   listAgents,
   listCycles,
+  setAgentRuntimeStatus,
   tickAgent,
   type RuntimeAgent,
   type RuntimeCycle,
 } from '../../lib/agentRuntime'
 import { AGENT_WALLET_ADDRESS, shortAgentAddress } from '../../lib/agentWallet'
 import { baseSepolia, zeroGGalileo } from '../../config/wagmi'
+import ChromosomePair from '../ChromosomePair'
+import type { Genome } from '../../lib/genome'
 import '../../styles/Trade.css'
 
 // =====================================================================
@@ -430,7 +433,7 @@ type AgentSlotProps = {
   breedResult: BreedFlowResult | null
 }
 
-type SlotState = 'idle' | 'activating' | 'ticking' | 'error'
+type SlotState = 'idle' | 'activating' | 'ticking' | 'changing-status' | 'error'
 
 function AgentSlot({
   slotIndex,
@@ -545,6 +548,21 @@ function AgentSlot({
     }
   }
 
+  const handleStatusChange = async (next: 'active' | 'paused') => {
+    if (!agent) return
+    setState('changing-status')
+    setError('')
+    try {
+      await setAgentRuntimeStatus(agent.tokenId, next)
+      // Optimistic local update; the polling loop will re-confirm soon.
+      setAgent({ ...agent, status: next })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setState('idle')
+    }
+  }
+
   return (
     <article className="agent-slot">
       <header className="agent-slot-header">
@@ -573,6 +591,8 @@ function AgentSlot({
           cycles={cycles}
           onTick={handleTick}
           ticking={state === 'ticking'}
+          onStatusChange={handleStatusChange}
+          changingStatus={state === 'changing-status'}
         />
       )}
 
@@ -665,19 +685,31 @@ function ActiveAgent({
   cycles,
   onTick,
   ticking,
+  onStatusChange,
+  changingStatus,
 }: {
   agent: RuntimeAgent
   cycles: RuntimeCycle[]
   onTick: () => void
   ticking: boolean
+  onStatusChange: (next: 'active' | 'paused') => void
+  changingStatus: boolean
 }) {
+  const paused = agent.status === 'paused'
   return (
     <>
-      <dl className="agent-stats">
-        <div>
-          <dt>token</dt>
-          <dd className="mono">#{agent.tokenId}</dd>
+      <div className="agent-genome-strip">
+        <ChromosomePair genome={agent.genome as Genome} size="sm" />
+        <div className="agent-genome-meta">
+          <span className="mono">#{agent.tokenId}</span>
+          <span className="agent-genome-trait">
+            {agent.genome.trigger.dominance} ·{' '}
+            {agent.genome.filter.dominance}
+          </span>
         </div>
+      </div>
+
+      <dl className="agent-stats">
         <div>
           <dt>position</dt>
           <dd>
@@ -695,16 +727,31 @@ function ActiveAgent({
           <dt>trades</dt>
           <dd className="mono">{agent.cumulativeTrades}</dd>
         </div>
+        <div>
+          <dt>status</dt>
+          <dd>{agent.status}</dd>
+        </div>
       </dl>
 
-      <button
-        className="btn btn-ghost agent-tick-btn"
-        type="button"
-        onClick={onTick}
-        disabled={ticking}
-      >
-        {ticking ? 'Running…' : 'Run cycle now'}
-      </button>
+      <div className="agent-controls">
+        <button
+          className="btn btn-ghost agent-tick-btn"
+          type="button"
+          onClick={onTick}
+          disabled={ticking || paused}
+          title={paused ? 'Resume the agent first' : undefined}
+        >
+          {ticking ? 'Running…' : 'Run cycle now'}
+        </button>
+        <button
+          className={`btn agent-status-btn ${paused ? 'btn-primary' : 'btn-ghost-danger'}`}
+          type="button"
+          onClick={() => onStatusChange(paused ? 'active' : 'paused')}
+          disabled={changingStatus}
+        >
+          {changingStatus ? '…' : paused ? 'Resume' : 'Stop'}
+        </button>
+      </div>
 
       <CycleLog cycles={cycles} />
     </>
@@ -761,7 +808,29 @@ function CycleLog({ cycles }: { cycles: RuntimeCycle[] }) {
             {c.tradePrice !== null && (
               <p className="cycle-reason mono">
                 ↳ {c.tradeAction} @ ${c.tradePrice.toFixed(2)}
-                {c.tradeTxHash ? ` · tx ${c.tradeTxHash.slice(0, 10)}…` : ''}
+                {c.tradeTxHash ? (
+                  <>
+                    {' · '}
+                    <a
+                      href={`https://sepolia.basescan.org/tx/${c.tradeTxHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={c.tradeTxHash}
+                    >
+                      tx {c.tradeTxHash.slice(0, 10)}…
+                    </a>
+                  </>
+                ) : null}
+              </p>
+            )}
+            {c.decisionLogRootHash && (
+              <p
+                className="cycle-reason mono cycle-reason-storage"
+                title={`Decision log on 0G Storage: 0g://${c.decisionLogRootHash}`}
+              >
+                <span className="cycle-reason-tag">📦</span>
+                0g://{c.decisionLogRootHash.slice(0, 10)}…
+                {c.decisionLogRootHash.slice(-6)}
               </p>
             )}
           </div>

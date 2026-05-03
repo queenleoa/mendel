@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { DragEvent } from 'react'
+import type { RecommendedParams } from '../../lib/recommendedParams'
+import type { AlphaCells, CellKey, CellState } from '../../lib/alphaCells'
 import '../../styles/AlphaParameters.css'
 
 type GeneType = 'trigger' | 'filter'
@@ -36,7 +38,8 @@ const GENES: Gene[] = [
   { id: 'drawdown-brake', label: 'Drawdown Brake', type: 'filter', active: false, color: '#dc2626' },
 ]
 
-type CellKey = 'dom-trigger' | 'rec-trigger' | 'dom-filter' | 'rec-filter'
+// CellKey + CellState now imported from lib/alphaCells so the same
+// shape is shared between this tab, TabLayout state, and the Mint tab.
 
 const CELL_TYPES: Record<CellKey, GeneType> = {
   'dom-trigger': 'trigger',
@@ -65,29 +68,68 @@ type ParamField = {
   highlightOnChange?: boolean
 }
 
-type CellState = { geneId: string; params: Record<string, string> } | null
+// CellState type imported above.
 
-const GENE_PARAMS: Record<string, ParamField[]> = {
-  momentum: [
-    { key: 'lookback', label: 'Lookback', defaultValue: '4', suffix: 'h' },
-    { key: 'threshold', label: 'Threshold', prefix: '±', defaultValue: '0.5', suffix: '%' },
-  ],
-  'mean-reversion': [
-    { key: 'window', label: 'Window', defaultValue: '4', suffix: 'h' },
-    { key: 'threshold', label: 'Threshold', prefix: '±', defaultValue: '0.7', suffix: 'σ' },
-  ],
-  'volatility-band': [
-    { key: 'low', label: 'Low', defaultValue: '0.7', highlightOnChange: true },
-    { key: 'high', label: 'High', defaultValue: '2.5', highlightOnChange: true },
-  ],
-}
+// GENE_PARAMS now varies with the live-market `recommendedParams` so the
+// chip defaults reflect today's regime. The fallback values below are
+// used when no recommendation has loaded (e.g. user opens the Alpha tab
+// before clicking Continue on Universe).
+function buildGeneParams(
+  rec: RecommendedParams | null,
+): Record<string, ParamField[]> {
+  const m = rec?.momentum
+  const r = rec?.reversion
+  const v = rec?.volatility.narrow
 
-const buildDefaultParams = (geneId: string): Record<string, string> => {
-  const params: Record<string, string> = {}
-  ;(GENE_PARAMS[geneId] ?? []).forEach((p) => {
-    params[p.key] = p.defaultValue
-  })
-  return params
+  // Threshold/zThreshold round-tripping: genome stores decimals (0.001),
+  // chip displays percentages or sigmas (0.10 / 0.20). Keep the chip
+  // string close to the genome value so the user round-trip is honest.
+  return {
+    momentum: [
+      {
+        key: 'lookback',
+        label: 'Lookback',
+        defaultValue: String(m?.lookback ?? 4),
+        suffix: 'h',
+      },
+      {
+        key: 'threshold',
+        label: 'Threshold',
+        prefix: '±',
+        defaultValue: ((m?.threshold ?? 0.001) * 100).toFixed(2),
+        suffix: '%',
+      },
+    ],
+    'mean-reversion': [
+      {
+        key: 'window',
+        label: 'Window',
+        defaultValue: String(r?.window ?? 4),
+        suffix: 'h',
+      },
+      {
+        key: 'threshold',
+        label: 'Threshold',
+        prefix: '±',
+        defaultValue: String(r?.zThreshold ?? 0.3),
+        suffix: 'σ',
+      },
+    ],
+    'volatility-band': [
+      {
+        key: 'low',
+        label: 'Low',
+        defaultValue: ((v?.min ?? 0.007) * 100).toFixed(2),
+        highlightOnChange: true,
+      },
+      {
+        key: 'high',
+        label: 'High',
+        defaultValue: ((v?.max ?? 0.025) * 100).toFixed(2),
+        highlightOnChange: true,
+      },
+    ],
+  }
 }
 
 const findGene = (id: string | null) => GENES.find((g) => g.id === id) ?? null
@@ -128,15 +170,23 @@ type CellProps = {
   onDrop: (cellKey: CellKey, geneId: string) => void
   onClear: (cellKey: CellKey) => void
   onParamChange: (cellKey: CellKey, paramKey: string, value: string) => void
+  geneParams: Record<string, ParamField[]>
 }
 
-function StrategyCell({ cellKey, state, onDrop, onClear, onParamChange }: CellProps) {
+function StrategyCell({
+  cellKey,
+  state,
+  onDrop,
+  onClear,
+  onParamChange,
+  geneParams,
+}: CellProps) {
   const [hovering, setHovering] = useState(false)
   const [reject, setReject] = useState(false)
   const gene = state ? findGene(state.geneId) : null
   const expectedType = CELL_TYPES[cellKey]
   const columnClass = cellKey.startsWith('dom-') ? 'col-dominant' : 'col-recessive'
-  const params = state ? GENE_PARAMS[state.geneId] ?? [] : []
+  const params = state ? geneParams[state.geneId] ?? [] : []
   const placedGeneModified = !!(
     state &&
     params.some(
@@ -230,16 +280,34 @@ function StrategyCell({ cellKey, state, onDrop, onClear, onParamChange }: CellPr
 
 type AlphaProps = {
   onContinue?: () => void
+  recommendedParams?: RecommendedParams | null
+  // Cells are owned by TabLayout so Mint can read user placements. The
+  // tab is fully controlled — every mutation goes through onCellsChange.
+  cells: AlphaCells
+  onCellsChange: (next: AlphaCells) => void
 }
 
-export default function AlphaParameters({ onContinue }: AlphaProps) {
+export default function AlphaParameters({
+  onContinue,
+  recommendedParams = null,
+  cells,
+  onCellsChange,
+}: AlphaProps) {
+  // Memoize so we don't rebuild the chip-defaults map on every render
+  // — only when the recommended-params object identity changes.
+  const geneParams = useMemo(
+    () => buildGeneParams(recommendedParams),
+    [recommendedParams],
+  )
+  const buildDefaultParams = (geneId: string): Record<string, string> => {
+    const out: Record<string, string> = {}
+    ;(geneParams[geneId] ?? []).forEach((p) => {
+      out[p.key] = p.defaultValue
+    })
+    return out
+  }
+
   const [variant, setVariant] = useState<Variant>('')
-  const [cells, setCells] = useState<Record<CellKey, CellState>>({
-    'dom-trigger': null,
-    'rec-trigger': null,
-    'dom-filter': null,
-    'rec-filter': null,
-  })
   const [shakingId, setShakingId] = useState<string | null>(null)
   const [v2Toast, setV2Toast] = useState<string | null>(null)
   const allCellsFilled =
@@ -256,14 +324,14 @@ export default function AlphaParameters({ onContinue }: AlphaProps) {
   }
 
   const handleDropOnCell = (cellKey: CellKey, geneId: string) => {
-    setCells((prev) => ({
-      ...prev,
+    onCellsChange({
+      ...cells,
       [cellKey]: { geneId, params: buildDefaultParams(geneId) },
-    }))
+    })
   }
 
   const handleClearCell = (cellKey: CellKey) => {
-    setCells((prev) => ({ ...prev, [cellKey]: null }))
+    onCellsChange({ ...cells, [cellKey]: null })
   }
 
   const handleParamChange = (
@@ -271,16 +339,14 @@ export default function AlphaParameters({ onContinue }: AlphaProps) {
     paramKey: string,
     value: string,
   ) => {
-    setCells((prev) => {
-      const current = prev[cellKey]
-      if (!current) return prev
-      return {
-        ...prev,
-        [cellKey]: {
-          ...current,
-          params: { ...current.params, [paramKey]: value },
-        },
-      }
+    const current = cells[cellKey]
+    if (!current) return
+    onCellsChange({
+      ...cells,
+      [cellKey]: {
+        ...current,
+        params: { ...current.params, [paramKey]: value },
+      },
     })
   }
 
@@ -317,6 +383,20 @@ export default function AlphaParameters({ onContinue }: AlphaProps) {
           </select>
         </div>
       </header>
+
+      {recommendedParams && recommendedParams.market.spot > 0 && (
+        <div className="alpha-tuning-banner">
+          <span className="alpha-tuning-tag">live-tuned</span>
+          <span>
+            Defaults computed against ETH/USDT @ ${recommendedParams.market.spot.toFixed(2)}
+            {' · '}24h {recommendedParams.market.change24hPct >= 0 ? '+' : ''}
+            {recommendedParams.market.change24hPct.toFixed(2)}%
+            {' · '}vol {recommendedParams.market.vol24hPct.toFixed(2)}%.
+            Triggers will fire in this regime instead of waiting for an
+            unusually large move.
+          </span>
+        </div>
+      )}
 
       {variantSelected ? (
         <div className="alpha-body">
@@ -377,6 +457,7 @@ export default function AlphaParameters({ onContinue }: AlphaProps) {
                 onDrop={handleDropOnCell}
                 onClear={handleClearCell}
                 onParamChange={handleParamChange}
+                geneParams={geneParams}
               />
               <StrategyCell
                 cellKey="rec-trigger"
@@ -384,6 +465,7 @@ export default function AlphaParameters({ onContinue }: AlphaProps) {
                 onDrop={handleDropOnCell}
                 onClear={handleClearCell}
                 onParamChange={handleParamChange}
+                geneParams={geneParams}
               />
 
               <div className="row-label">Filter</div>
@@ -393,6 +475,7 @@ export default function AlphaParameters({ onContinue }: AlphaProps) {
                 onDrop={handleDropOnCell}
                 onClear={handleClearCell}
                 onParamChange={handleParamChange}
+                geneParams={geneParams}
               />
               <StrategyCell
                 cellKey="rec-filter"
@@ -400,6 +483,7 @@ export default function AlphaParameters({ onContinue }: AlphaProps) {
                 onDrop={handleDropOnCell}
                 onClear={handleClearCell}
                 onParamChange={handleParamChange}
+                geneParams={geneParams}
               />
             </div>
 

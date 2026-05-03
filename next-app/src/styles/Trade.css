@@ -323,6 +323,73 @@
   text-align: center;
 }
 
+/* ---- active agent: genome strip + controls ---- */
+
+.agent-genome-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+.agent-genome-strip .chromosome-pair {
+  transform: scale(0.85);
+  transform-origin: left center;
+}
+.agent-genome-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  flex: 1;
+  min-width: 0;
+}
+.agent-genome-meta .mono {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.agent-genome-trait {
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  word-break: break-word;
+}
+
+.agent-controls {
+  display: flex;
+  gap: 0.4rem;
+}
+.agent-controls .agent-tick-btn {
+  flex: 1;
+  align-self: stretch;
+}
+.agent-status-btn {
+  flex: 0 0 auto;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+}
+.btn.btn-ghost-danger {
+  background: var(--surface);
+  border: 1px solid #f0c4bc;
+  color: var(--danger);
+}
+.btn.btn-ghost-danger:hover:not(:disabled) {
+  background: #fff3f0;
+  border-color: var(--danger);
+}
+.btn.btn-ghost-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cycle-reason-storage {
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+}
+
 /* ---- active agent stats ---- */
 
 .agent-stats {

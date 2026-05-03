@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/tick",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/upload-decision-logs",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

@@ -77,6 +77,32 @@
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.alpha-tuning-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.9rem;
+  background: var(--accent-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  margin: 0 0 1.25rem 0;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+.alpha-tuning-tag {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  color: var(--accent-strong);
+}
+
 .alpha-empty {
   background: var(--surface);
   border: 1px dashed var(--line);

@@ -15,6 +15,11 @@ import Backtest from './tabs/Backtest'
 import Trade from './tabs/Trade'
 import About from './About'
 import type { BreedFlowResult } from '../lib/inft'
+import {
+  fetchRecommendedParams,
+  type RecommendedParams,
+} from '../lib/recommendedParams'
+import { EMPTY_ALPHA_CELLS, type AlphaCells } from '../lib/alphaCells'
 import '../styles/TabLayout.css'
 
 type TabType =
@@ -43,6 +48,30 @@ export default function TabLayout() {
   const [breedResult, setBreedResultState] = useState<BreedFlowResult | null>(
     null,
   )
+
+  // Live-market-tuned defaults for Alpha + Mint. Computed once on the
+  // Universe → Alpha transition (see `handleUniverseContinue` below) so
+  // the chip defaults and founder genomes match today's regime instead
+  // of stale 2024-era constants. Falls back gracefully on fetch failure.
+  const [recommendedParams, setRecommendedParams] =
+    useState<RecommendedParams | null>(null)
+  const [computingParams, setComputingParams] = useState(false)
+
+  // Alpha tab's strategy-grid placements lifted up so Mint can build
+  // founder genomes from the user's actual choices (gene + per-cell
+  // params), not from `recommendedParams` directly.
+  const [alphaCells, setAlphaCells] = useState<AlphaCells>(EMPTY_ALPHA_CELLS)
+
+  const handleUniverseContinue = async () => {
+    setComputingParams(true)
+    try {
+      const params = await fetchRecommendedParams()
+      setRecommendedParams(params)
+    } finally {
+      setComputingParams(false)
+      setActiveTab('alpha')
+    }
+  }
 
   // Hydrate from localStorage once on mount (client-only — guarded against
   // SSR + private-mode quota exceptions).
@@ -113,16 +142,24 @@ export default function TabLayout() {
         <UniverseParameters
           value={universeParams}
           onChange={setUniverseParams}
-          onContinue={() => setActiveTab('alpha')}
+          onContinue={handleUniverseContinue}
+          computing={computingParams}
         />
       </div>
       <div hidden={activeTab !== 'alpha'} className="tab-pane">
-        <AlphaParameters onContinue={() => setActiveTab('mint')} />
+        <AlphaParameters
+          onContinue={() => setActiveTab('mint')}
+          recommendedParams={recommendedParams}
+          cells={alphaCells}
+          onCellsChange={setAlphaCells}
+        />
       </div>
       <div hidden={activeTab !== 'mint'} className="tab-pane">
         <Mint
           universeParams={universeParams}
           onContinue={() => setActiveTab('breed')}
+          recommendedParams={recommendedParams}
+          alphaCells={alphaCells}
         />
       </div>
       <div hidden={activeTab !== 'breed'} className="tab-pane">

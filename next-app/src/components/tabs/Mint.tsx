@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAccount, useWalletClient } from 'wagmi'
 import { walletClientToSigner } from '../../lib/zgInference'
 import {
@@ -15,6 +15,13 @@ import {
 } from '../../lib/inft'
 import type { Genome } from '../../lib/genome'
 import type { UniverseParams } from './UniverseParameters'
+import type { RecommendedParams } from '../../lib/recommendedParams'
+import {
+  buildF1FromCells,
+  buildF2FromCells,
+  EMPTY_ALPHA_CELLS,
+  type AlphaCells,
+} from '../../lib/alphaCells'
 import ChromosomePair from '../ChromosomePair'
 import LogTicker, { stampLog, type LogEntry } from '../LogTicker'
 import '../../styles/Mint.css'
@@ -22,71 +29,25 @@ import '../../styles/Mint.css'
 type FounderId = 'F1' | 'F2'
 
 // =====================================================================
-//                  Hardcoded purebred founder presets
+//                  Purebred founder presets (cell-derived)
 // =====================================================================
 //
 // Each founder is HOMOZYGOUS at every locus — both haplotypes carry the
 // same allele. Visually, both chromosomes of the pair look identical,
 // which is the textbook "purebred parental" generation. Breeding F1 × F2
-// produces uniformly heterozygous F2 children (per spec, gen=2 in JSON).
-
-const NOW = new Date().toISOString()
-
-// 4-hour intraday timescales — calibrated for the 5-min Universe-tab
-// timeframe so signals fire often enough to populate a meaningful
-// backtest leaderboard. Older 24h-scale defaults produced ~2 trades per
-// child over a flat week.
-const F1_GENOME: Genome = {
-  trigger: {
-    locusId: 'I',
-    alleles: [
-      { type: 'momentum', lookback: 4, threshold: 0.005 },
-      { type: 'momentum', lookback: 4, threshold: 0.005 },
-    ],
-    dominance: 'momentum',
-  },
-  filter: {
-    locusId: 'II',
-    alleles: [
-      { type: 'volatility-narrow', min: 0.007, max: 0.025 },
-      { type: 'volatility-narrow', min: 0.007, max: 0.025 },
-    ],
-    dominance: 'volatility-narrow',
-  },
-  parents: [],
-  generation: 0,
-  createdAt: NOW,
-}
-
-const F2_GENOME: Genome = {
-  trigger: {
-    locusId: 'I',
-    alleles: [
-      { type: 'reversion', window: 4, zThreshold: 0.7 },
-      { type: 'reversion', window: 4, zThreshold: 0.7 },
-    ],
-    dominance: 'reversion',
-  },
-  filter: {
-    locusId: 'II',
-    alleles: [
-      { type: 'volatility-wide', min: 0.005, max: 0.04 },
-      { type: 'volatility-wide', min: 0.005, max: 0.04 },
-    ],
-    dominance: 'volatility-wide',
-  },
-  parents: [],
-  generation: 0,
-  createdAt: NOW,
-}
+// produces segregating F2 children (the recombination skips a generation
+// internally, see lib/genome.ts).
+//
+// Founder construction now reads from `alphaCells` — the strategy-grid
+// placements the user made on the Alpha tab — so any custom gene swap
+// or per-cell threshold edit flows through to what gets minted on-chain.
+// `recommendedParams` still feeds the chip defaults on Alpha, which then
+// become the cells' default param values; if the user makes no edits
+// the founders end up identical to what the prior phase produced.
 
 const FOUNDER_DESCRIPTIONS: Record<FounderId, string> = {
-  F1: 'Momentum × Volatility-Narrow · purebred',
-  F2: 'Mean-Reversion × Volatility-Wide · purebred',
-}
-
-function genomeFor(id: FounderId): Genome {
-  return id === 'F1' ? F1_GENOME : F2_GENOME
+  F1: 'Dominant strategy from Alpha tab · purebred',
+  F2: 'Recessive strategy from Alpha tab · purebred',
 }
 
 // =====================================================================
@@ -118,6 +79,8 @@ function buildLineageParams(universe?: UniverseParams): LineageParams {
 type Props = {
   universeParams?: UniverseParams
   onContinue?: () => void
+  recommendedParams?: RecommendedParams | null
+  alphaCells?: AlphaCells
 }
 
 type FounderState = {
@@ -127,7 +90,24 @@ type FounderState = {
 
 const emptyState: FounderState = { busy: false }
 
-export default function Mint({ universeParams, onContinue }: Props) {
+export default function Mint({
+  universeParams,
+  onContinue,
+  recommendedParams = null,
+  alphaCells = EMPTY_ALPHA_CELLS,
+}: Props) {
+  // Memoize the founder genomes so they only rebuild when either the
+  // user's Alpha-tab placements change OR the live recommendation
+  // refreshes — avoids a fresh `createdAt` on every render, which would
+  // invalidate child genome equality checks.
+  const founderGenomes = useMemo(
+    () => ({
+      F1: buildF1FromCells(alphaCells, recommendedParams),
+      F2: buildF2FromCells(alphaCells, recommendedParams),
+    }),
+    [alphaCells, recommendedParams],
+  )
+  const genomeFor = (id: FounderId): Genome => founderGenomes[id]
   const { isConnected } = useAccount()
   const { data: walletClient } = useWalletClient()
   const [agentAddress, setAgentAddress] = useState<string | null>(null)
@@ -310,12 +290,14 @@ export default function Mint({ universeParams, onContinue }: Props) {
                 state={f1}
                 ready={!!ready}
                 onMint={handleMint}
+                genome={founderGenomes.F1}
               />
               <FounderPanel
                 id="F2"
                 state={f2}
                 ready={!!ready}
                 onMint={handleMint}
+                genome={founderGenomes.F2}
               />
             </section>
 
@@ -419,10 +401,10 @@ type FounderPanelProps = {
   state: FounderState
   ready: boolean
   onMint: (id: FounderId) => void
+  genome: Genome
 }
 
-function FounderPanel({ id, state, ready, onMint }: FounderPanelProps) {
-  const genome = genomeFor(id)
+function FounderPanel({ id, state, ready, onMint, genome }: FounderPanelProps) {
   return (
     <div className={`founder-panel founder-${id.toLowerCase()}`}>
       <header className="founder-panel-header">
