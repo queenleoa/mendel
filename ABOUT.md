@@ -101,6 +101,8 @@ A specific variant of genetic algorithms where each candidate solution carries t
 
 **Empirical record:** Strong for non-stationary optimization in CS literature on abstract benchmarks (knapsack with shifting constraints, dynamic bit-matching). Goldberg-Smith demonstrated diploid GAs dramatically outperform haploid GAs when the environment switches. Lewis-Hart-Ritchie (1998) showed the advantage requires dominance change mechanisms or it weakens. **No published applications to trading** — Mendel is the first system bridging this CS literature to autonomous trading agents.
 
+![dihybrid cross](https://github.com/queenleoa/mendel/blob/0ca387a497eb2c20e632e27c3f2ac7bcfffdf94d/DihybridCross.png)
+
 ---
 
 ## The capability matchup — which technique wins in which situation
