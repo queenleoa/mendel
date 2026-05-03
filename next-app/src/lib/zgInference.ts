@@ -2,6 +2,7 @@ import { BrowserProvider, formatEther, parseEther } from 'ethers'
 import type { JsonRpcSigner } from 'ethers'
 import type { Account, Chain, Transport, WalletClient } from 'viem'
 import { createZGComputeNetworkBroker } from '@0glabs/0g-serving-broker'
+import { zeroGGalileo } from '../config/wagmi'
 
 export type StatusCallback = (msg: string) => void
 
@@ -21,20 +22,43 @@ const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
 
 /**
  * Convert a wagmi v2 walletClient (viem) into an ethers v6 JsonRpcSigner.
- * This routes signing through the wagmi-managed connector (MetaMask in our
- * config) instead of `window.ethereum`, so the user's already-connected
- * wallet is the one used.
+ * Routes signing through the wagmi-managed connector (MetaMask) instead
+ * of `window.ethereum`, so the user's already-connected wallet is the
+ * one used.
+ *
+ * NOTE: We intentionally do *not* pin a network on BrowserProvider —
+ * after a `switchChainAsync` the captured walletClient closure may still
+ * report the old chain for a tick, so trusting MetaMask's live chainId
+ * (via auto-detect) makes the signer always match the wallet's actual
+ * current network.
  */
 export async function walletClientToSigner(
   walletClient: WalletClient<Transport, Chain, Account>,
 ): Promise<JsonRpcSigner> {
-  const { account, chain, transport } = walletClient
-  const network = {
-    chainId: chain.id,
-    name: chain.name,
-  }
-  const provider = new BrowserProvider(transport as never, network)
+  const { account, transport } = walletClient
+  const provider = new BrowserProvider(transport as never)
   return provider.getSigner(account.address)
+}
+
+/**
+ * Like `walletClientToSigner` but auto-switches MetaMask to 0G Galileo
+ * first when the wallet is on a different chain (typical scenario:
+ * the user just topped up Base Sepolia from the Trade tab, MetaMask is
+ * still on Base Sepolia, then they click "Deploy MendelAgent" — without
+ * this guard the deploy would go to Base Sepolia and ask for a wildly
+ * inflated gas estimate against the wrong contract bytecode pricing).
+ *
+ * Pass `switchChainAsync` from `useSwitchChain()` so the auto-switch
+ * goes through wagmi rather than directly invoking the EIP-3326 RPC.
+ */
+export async function getZeroGSigner(
+  walletClient: WalletClient<Transport, Chain, Account>,
+  switchChainAsync: (args: { chainId: number }) => Promise<unknown>,
+): Promise<JsonRpcSigner> {
+  if (walletClient.chain.id !== zeroGGalileo.id) {
+    await switchChainAsync({ chainId: zeroGGalileo.id })
+  }
+  return walletClientToSigner(walletClient)
 }
 
 export async function runInference(

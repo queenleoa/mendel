@@ -1,9 +1,10 @@
 // Server-side Uniswap V3 executor on Base Sepolia.
 //
 // Swaps the agent wallet's USDC ↔ WETH at a fixed trade size (default
-// 0.01 WETH per leg, override via TRADE_SIZE_ETH env). All swaps go
-// through SwapRouter02's `exactInputSingle` against the 0.3 % pool —
-// the only Base Sepolia ETH/USDC tier with measurable depth.
+// $10 USDC per leg; override via TRADE_SIZE_USDC env, or fall back to
+// TRADE_SIZE_ETH for legacy ETH-fixed sizing). All swaps go through
+// SwapRouter02's `exactInputSingle` against the 0.3 % pool — the only
+// Base Sepolia ETH/USDC tier with measurable depth.
 //
 // Pool prices on testnet diverge wildly from mainnet (e.g. ~$162/ETH
 // vs Binance's ~$2,300 today) because liquidity is sparse. We still
@@ -46,10 +47,44 @@ const USDC =
 
 const POOL_FEE = Number(process.env.UNISWAP_POOL_FEE ?? 3000)
 
-// Trade size per swap leg, denominated in ETH. 0.01 ≈ $23 at mainnet
-// price; on testnet pool's depressed ~$162/ETH that's ~1.62 USDC of
-// inventory cycling per trade. Plenty of demo runtime per top-up.
-export const TRADE_SIZE_ETH = Number(process.env.TRADE_SIZE_ETH ?? 0.01)
+// Trade size — preferred unit is USDC notional, since on Base Sepolia
+// the USDC test faucet is the scarce side (10 USDC per claim) while ETH
+// faucets are generous. Default $10 per leg → 4-5 round-trip cycles
+// from a single 50 USDC claim.
+//
+// Env precedence: TRADE_SIZE_USDC takes priority. TRADE_SIZE_ETH is
+// honored only when USDC isn't set (legacy / advanced override).
+const TRADE_SIZE_USDC_ENV = process.env.TRADE_SIZE_USDC
+const TRADE_SIZE_ETH_ENV = process.env.TRADE_SIZE_ETH
+const DEFAULT_TRADE_SIZE_USDC = 10
+
+/**
+ * Return the trade size for an `open_long` leg, expressed both as the
+ * USDC amount we'll spend (driven by env or default $10) and the
+ * implied ETH size at the current Binance reference price. Position
+ * tracking uses the ETH side so the state machine stays
+ * price-invariant; the USDC side controls actual swap input.
+ */
+function getOpenLongSize(binancePrice: number): {
+  ethSize: number
+  usdcAmount: bigint
+} {
+  let usdcNotional: number
+  if (TRADE_SIZE_USDC_ENV) {
+    usdcNotional = Number(TRADE_SIZE_USDC_ENV)
+  } else if (TRADE_SIZE_ETH_ENV) {
+    // Legacy ETH-fixed sizing — convert to USDC at current Binance px.
+    const ethFixed = Number(TRADE_SIZE_ETH_ENV)
+    usdcNotional = ethFixed * binancePrice
+  } else {
+    usdcNotional = DEFAULT_TRADE_SIZE_USDC
+  }
+  const ethSize = binancePrice > 0 ? usdcNotional / binancePrice : 0
+  return {
+    ethSize,
+    usdcAmount: parseUnits(usdcNotional.toFixed(6), 6),
+  }
+}
 
 // 5 % slippage tolerance versus Uniswap's *own* quote — not against
 // Binance. The pool's price relative to mainnet is its own concern;
@@ -142,21 +177,37 @@ export type TradeAttempt = {
 }
 
 /**
- * Open a long position by buying `TRADE_SIZE_ETH` worth of WETH with
- * USDC. Sizing is computed from the Binance reference price (so we
- * spend ~the right USDC notional) and then routed through the testnet
- * pool, which may fill at a meaningfully different price.
+ * Open a long position by spending the configured USDC notional
+ * (`TRADE_SIZE_USDC`, default $10) on WETH. The implied ETH size at
+ * the Binance reference price gets recorded as the position size; the
+ * actual amount of WETH the testnet pool returns may be much larger
+ * (pool prices ETH ~$162 vs Binance ~$2,300), but the position-state
+ * accounting stays in Binance terms so PnL math doesn't drift.
  */
 export async function tryOpenLong(
   binancePrice: number,
 ): Promise<TradeAttempt> {
-  const ethSize = TRADE_SIZE_ETH
-  const usdcAmount = parseUnits(
-    (ethSize * binancePrice).toFixed(6),
-    6, // USDC has 6 decimals
-  )
+  const { ethSize, usdcAmount } = getOpenLongSize(binancePrice)
   try {
     const wallet = getWallet()
+
+    // Pre-flight: confirm the agent has enough USDC to swap. The router
+    // calls `transferFrom(agent, router, usdcAmount)` and reverts with
+    // the opaque "STF" string when the agent's balance is short. Catch
+    // it here with a clear message instead.
+    const usdcContract = new Contract(USDC, ERC20_ABI, wallet)
+    const usdcBalance: bigint = await usdcContract.balanceOf(wallet.address)
+    if (usdcBalance < usdcAmount) {
+      const have = Number(formatUnits(usdcBalance, 6)).toFixed(2)
+      const need = Number(formatUnits(usdcAmount, 6)).toFixed(2)
+      return paperTrade(
+        'open_long',
+        ethSize,
+        binancePrice,
+        `agent USDC balance ${have} < ${need} required — top up the agent at faucet.circle.com (Base Sepolia)`,
+      )
+    }
+
     const quoter = new Contract(QUOTER_V2, QUOTER_ABI, wallet.provider!)
     const [quotedWethOut] = (await quoter.quoteExactInputSingle.staticCall({
       tokenIn: USDC,
@@ -223,6 +274,24 @@ export async function tryCloseLong(
 
   try {
     const wallet = getWallet()
+
+    // Pre-flight: confirm the agent has enough WETH to sell. Mirror of
+    // the USDC check in tryOpenLong — close_long after a paper-traded
+    // open_long has no on-chain WETH backing, so this catches the
+    // "previous open was paper, now we can't really close" case.
+    const wethContract = new Contract(WETH, ERC20_ABI, wallet)
+    const wethBalance: bigint = await wethContract.balanceOf(wallet.address)
+    if (wethBalance < wethAmount) {
+      const have = Number(formatUnits(wethBalance, 18)).toFixed(4)
+      const need = Number(formatUnits(wethAmount, 18)).toFixed(4)
+      return paperTrade(
+        'close_long',
+        positionEth,
+        binancePrice,
+        `agent WETH balance ${have} < ${need} required — earlier open_long was likely paper, no on-chain inventory to sell`,
+      )
+    }
+
     const quoter = new Contract(QUOTER_V2, QUOTER_ABI, wallet.provider!)
     const [quotedUsdcOut] = (await quoter.quoteExactInputSingle.staticCall({
       tokenIn: WETH,

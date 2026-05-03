@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useAccount, useWalletClient } from 'wagmi'
-import { walletClientToSigner } from '../../lib/zgInference'
+import { useAccount, useSwitchChain, useWalletClient } from 'wagmi'
+import { getZeroGSigner, walletClientToSigner } from '../../lib/zgInference'
 import {
   deployMendelAgent,
   deployMendelBreeder,
@@ -110,6 +110,7 @@ export default function Mint({
   const genomeFor = (id: FounderId): Genome => founderGenomes[id]
   const { isConnected } = useAccount()
   const { data: walletClient } = useWalletClient()
+  const { switchChainAsync } = useSwitchChain()
   const [agentAddress, setAgentAddress] = useState<string | null>(null)
   const [breederAddress, setBreederAddress] = useState<string | null>(null)
   const [agentBreederLink, setAgentBreederLink] = useState<string | null>(null)
@@ -131,6 +132,15 @@ export default function Mint({
 
   useEffect(() => {
     if (!agentAddress || !breederAddress || !walletClient) {
+      setAgentBreederLink(null)
+      return
+    }
+    // The MendelAgent contract only exists on 0G Galileo. If the wallet's
+    // currently on Base Sepolia (likely after a Trade-tab top-up), skip
+    // the read instead of forcing a chain-switch popup just for a status
+    // tick — user will see "—" and the deploy/mint flows will switch the
+    // chain as needed when they actually act.
+    if (walletClient.chain.id !== 16602) {
       setAgentBreederLink(null)
       return
     }
@@ -156,7 +166,7 @@ export default function Mint({
     setDeploying(true)
     appendLog('Submitting MendelAgent deploy tx (approve in MetaMask)…')
     try {
-      const signer = await walletClientToSigner(walletClient)
+      const signer = await getZeroGSigner(walletClient, switchChainAsync)
       const { address, txHash } = await deployMendelAgent(signer)
       setAgentAddress(address)
       appendLog(
@@ -174,7 +184,7 @@ export default function Mint({
     setBreederDeploying(true)
     appendLog('Deploying MendelBreeder (approve in MetaMask)…')
     try {
-      const signer = await walletClientToSigner(walletClient)
+      const signer = await getZeroGSigner(walletClient, switchChainAsync)
       const { breederAddress: b, deployTxHash, setBreederTxHash } =
         await deployMendelBreeder(signer)
       setBreederAddress(b)
@@ -201,7 +211,7 @@ export default function Mint({
     setFounder(id, { busy: true, result: undefined })
     appendLog(`${id}: starting mint…`)
     try {
-      const signer = await walletClientToSigner(walletClient)
+      const signer = await getZeroGSigner(walletClient, switchChainAsync)
       const result = await mintFounder(genome, lineageParams, signer, (m) =>
         appendLog(`${id}: ${m}`),
       )

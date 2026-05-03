@@ -87,17 +87,20 @@ function summarizeGenome(genome: Genome): string {
   const trig = genome.trigger.alleles.find(
     (a) => a.type === genome.trigger.dominance,
   )
-  const filt = genome.filter.alleles.find(
-    (a) => a.type === genome.filter.dominance,
-  )
-  if (!trig || !filt) return 'unknown strategy'
+  if (!trig) return 'unknown strategy'
+  // Deliberately *do not* include the vol band here. The strategy module
+  // already enforces the band (alpha emits `hold` when vol is outside),
+  // so by the time the LLM sees a non-hold signal the filter has passed.
+  // Including the band in the prompt was tempting the model to redo the
+  // arithmetic — and small models reliably hallucinate "vol exceeds
+  // upper band" even when the numbers are in matching units.
   if (trig.type === 'momentum' && 'lookback' in trig && 'threshold' in trig) {
-    return `momentum trigger (lookback ${trig.lookback}h, threshold ±${(trig.threshold * 100).toFixed(2)}%) gated by ${filt.type} filter (vol band ${('min' in filt ? filt.min : '?')}–${('max' in filt ? filt.max : '?')})`
+    return `momentum trigger (lookback ${trig.lookback}h, threshold ±${(trig.threshold * 100).toFixed(2)}%) — long-only ETH/USDC, vol filter already passed`
   }
   if (trig.type === 'reversion' && 'window' in trig && 'zThreshold' in trig) {
-    return `mean-reversion trigger (window ${trig.window}h, z±${trig.zThreshold}) gated by ${filt.type} filter (vol band ${('min' in filt ? filt.min : '?')}–${('max' in filt ? filt.max : '?')})`
+    return `mean-reversion trigger (window ${trig.window}h, z±${trig.zThreshold}) — long-only ETH/USDC, vol filter already passed`
   }
-  return `${trig.type} trigger gated by ${filt.type} filter`
+  return `${trig.type} trigger — long-only ETH/USDC, vol filter already passed`
 }
 
 function trendDescription(closes: number[] | undefined): string {
@@ -119,12 +122,16 @@ function buildPrompt(
   genome: Genome,
   market: MarketSnapshot,
 ): string {
-  return `You are a risk gatekeeper for an autonomous quant trading agent.
+  return `You are the final risk gatekeeper for an autonomous quant trading agent.
+The strategy has ALREADY done its quantitative filtering — volatility regime
+checks have passed and the trigger has fired. Your job is a sanity check
+for unusual macro conditions the strategy can't see, NOT to second-guess
+the volatility filter.
 
 Strategy: ${summarizeGenome(genome)}
-Alpha signal: ${signal.toUpperCase()} ETH/USDC (reason: ${alphaReason})
+Alpha signal: ${signal.toUpperCase()} ETH/USDC — ${alphaReason}
 
-Market context:
+Market context (snapshot):
   - Spot: $${market.spot.toFixed(2)}
   - 24h change: ${(market.spot24hChangeBps / 100).toFixed(2)}%
   - 24h realized vol: ${(market.volatility24hBps / 100).toFixed(2)}%
@@ -132,9 +139,20 @@ Market context:
   - Fear & Greed Index: ${market.fearGreed} (${market.fearGreedClassification})
   - ${trendDescription(market.recentCloses)}
 
-Decide: should this trade execute, or be rejected as a regime mismatch?
-Respond with ONLY two lines of valid JSON, no prose, no markdown:
-{"decision":"accept" or "reject","reason":"<two lines, ≤240 chars>"}`
+DEFAULT TO ACCEPT. Reject only when you spot a clear, named red flag:
+  • Extreme Fear & Greed (<10 or >90) that *contradicts* the signal
+    (e.g. BUY when FNG > 90, or SELL when FNG < 10)
+  • Funding rate diverging strongly against the trade (≥150 bps)
+  • Very recent 5-min trend reversing in the wrong direction (e.g. BUY
+    after the last hour fell more than 1%)
+
+Do NOT reject on the basis of:
+  • Volatility being "too high" or "too low" — the strategy already
+    handled that and decided this regime is fine.
+  • "It's just neutral" — neutral is fine, accept.
+
+Respond with ONLY one line of valid JSON, no prose, no markdown:
+{"decision":"accept" or "reject","reason":"<≤240 chars, name the specific red flag if rejecting>"}`
 }
 
 function parseGateResponse(text: string): {
@@ -157,11 +175,17 @@ function parseGateResponse(text: string): {
         reason?: string
       }
       if (parsed.decision === 'accept' || parsed.decision === 'reject') {
+        const trimmed = (parsed.reason ?? '').slice(0, 280)
+        // Fall back to a context-aware placeholder when the LLM returns
+        // an empty `reason` field — happens occasionally with smaller
+        // models. Better than the generic "no reason given".
+        const fallback =
+          parsed.decision === 'accept'
+            ? 'no red flags — regime acceptable (LLM returned empty reason)'
+            : 'rejected without specific reason (LLM returned empty reason)'
         return {
           decision: parsed.decision,
-          // Allow a little headroom over the 240-char prompt cap so the
-          // model isn't punished for slightly running over.
-          reason: (parsed.reason ?? '').slice(0, 280) || 'no reason given',
+          reason: trimmed || fallback,
         }
       }
     } catch {

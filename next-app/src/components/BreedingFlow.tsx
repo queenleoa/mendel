@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useAccount, useWalletClient } from 'wagmi'
-import { walletClientToSigner } from '../lib/zgInference'
+import { useAccount, useSwitchChain, useWalletClient } from 'wagmi'
+import { getZeroGSigner, walletClientToSigner } from '../lib/zgInference'
 import {
   breedFlow,
   getMendelAgentAddress,
@@ -62,6 +62,7 @@ export default function BreedingFlow({
 }: BreedingFlowProps) {
   const { isConnected } = useAccount()
   const { data: walletClient } = useWalletClient()
+  const { switchChainAsync } = useSwitchChain()
   const [parentA, setParentA] = useState<number>(1)
   const [parentB, setParentB] = useState<number>(2)
   const [running, setRunning] = useState(false)
@@ -170,6 +171,12 @@ export default function BreedingFlow({
   // After fulfillment, kick off the round-trip decrypt verification.
   useEffect(() => {
     if (!childResults || !walletClient) return
+    // Verification needs the signer to derive each child's genome key
+    // (signMessage call). The user's already authorised those keys
+    // during the breed flow, so the signer just needs to be on 0G —
+    // skip if the wallet's currently on a different chain rather than
+    // forcing a popup just for decryption verification.
+    if (walletClient.chain.id !== 16602) return
     let cancelled = false
     ;(async () => {
       try {
@@ -218,7 +225,7 @@ export default function BreedingFlow({
     setChildSlots(EMPTY_SLOTS)
     setChildResults(null)
     try {
-      const signer = await walletClientToSigner(walletClient)
+      const signer = await getZeroGSigner(walletClient, switchChainAsync)
       const r = await breedFlow(parentA, parentB, signer, handleEvent)
       setChildResults(r.children)
       onBreedComplete?.(r)

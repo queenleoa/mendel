@@ -8,7 +8,7 @@ import {
   useWalletClient,
 } from 'wagmi'
 import { formatUnits, parseEther } from 'viem'
-import { walletClientToSigner } from '../../lib/zgInference'
+import { getZeroGSigner, walletClientToSigner } from '../../lib/zgInference'
 import {
   decryptGenome,
   deriveGenomeKey,
@@ -443,6 +443,7 @@ function AgentSlot({
 }: AgentSlotProps) {
   const { address, isConnected } = useAccount()
   const { data: walletClient } = useWalletClient()
+  const { switchChainAsync } = useSwitchChain()
   const [agent, setAgent] = useState<RuntimeAgent | null>(null)
   const [cycles, setCycles] = useState<RuntimeCycle[]>([])
   const [state, setState] = useState<SlotState>('idle')
@@ -502,7 +503,10 @@ function AgentSlot({
     setState('activating')
     setError('')
     try {
-      const signer = await walletClientToSigner(walletClient)
+      // Activation reads MendelAgent on 0G and may sign for genome key
+      // derivation, so the wallet must be on 0G — auto-switch if it's
+      // currently on Base Sepolia (e.g. just after a top-up).
+      const signer = await getZeroGSigner(walletClient, switchChainAsync)
       // Prefer the in-memory genome from the breed result so we don't
       // need to re-fetch + re-decrypt for tokens we just minted. Fall
       // back to chain decrypt for tokens that aren't in the cached set.
