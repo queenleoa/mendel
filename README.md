@@ -35,7 +35,7 @@ npm run dev
 | Env var | Purpose |
 |---|---|
 | `DATABASE_URL` | Neon Postgres connection string. Schema applied via `npm run db:setup`. |
-| `AGENT_PRIVATE_KEY` | Hot-wallet private key used server-side to sign autonomous compute calls (0G Galileo) and Uniswap V3 swaps (Base Sepolia). |
+| `AGENT_PRIVATE_KEY` | Hot-wallet private key used server-side to sign autonomous compute calls (0G Galileo) and Uniswap V3 swaps (Base Sepolia). This is for ease of demo interaction. |
 | `AGENT_ADDRESS` | Public address of the hot wallet above. Surfaced to the UI so users can top up the agent runtime from MetaMask. |
 | `UNISWAP_API_KEY` _(optional)_ | Uniswap Trading API key is the default smart-routing path on mainnet. On testnet, The cycle hits the V3 router directly first (demo-reliable on Base Sepolia); the API path is tried as a fallback (`/v1/quote` → Permit2 sign → `/v1/swap`) |
 
@@ -81,7 +81,7 @@ In the demo, we cross-breed strategies using a breeder contract on 0G and deploy
 | | Address / Link |
 |---|---|
 | **MendelAgent** (0G Galileo) | [`0x98402b35460612A04a50463d1FC220E604B91f2a`](https://chainscan-galileo.0g.ai/address/0x98402b35460612A04a50463d1FC220E604B91f2a) |
-| **MendelBreeder** (0G Galileo) | _paste once deployed_ |
+| **MendelBreeder** (0G Galileo) |   [`0xE518cC8De4ba8420500d5c60aE324c3C1cE8B13D`](https://chainscan-galileo.0g.ai/address/0xe518cc8de4ba8420500d5c60ae324c3c1ce8b13d)|
 | **Agent runtime hot wallet** | `0xE22874bD023b98Ce9c77df0E2988020b16E299f6` |
 | **Sample autonomous Uniswap V3 swap** (Base Sepolia) | [`0xb14643cc…cce89919`](https://sepolia.basescan.org/tx/0xb14643cc88fe70296a142e0ed25bbc4c0c5b952c1eac1483c305a709cce89919) |
 
