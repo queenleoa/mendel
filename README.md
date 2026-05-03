@@ -37,7 +37,7 @@ npm run dev
 | `DATABASE_URL` | Neon Postgres connection string. Schema applied via `npm run db:setup`. |
 | `AGENT_PRIVATE_KEY` | Hot-wallet private key used server-side to sign autonomous compute calls (0G Galileo) and Uniswap V3 swaps (Base Sepolia). |
 | `AGENT_ADDRESS` | Public address of the hot wallet above. Surfaced to the UI so users can top up the agent runtime from MetaMask. |
-| `UNISWAP_API_KEY` _(optional)_ | Uniswap Trading API key. The cycle hits the V3 router directly first (demo-reliable on Base Sepolia); the API path is tried as a fallback (`/v1/quote` → Permit2 sign → `/v1/swap`) and is the default smart-routing path on mainnet. |
+| `UNISWAP_API_KEY` _(optional)_ | Uniswap Trading API key is the default smart-routing path on mainnet. On testnet, The cycle hits the V3 router directly first (demo-reliable on Base Sepolia); the API path is tried as a fallback (`/v1/quote` → Permit2 sign → `/v1/swap`) |
 
 -----
 ▸ Important Mechanisms:
